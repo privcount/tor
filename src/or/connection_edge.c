@@ -78,6 +78,7 @@
 #include "main.h"
 #include "nodelist.h"
 #include "policies.h"
+#include "privcount.h"
 #include "reasons.h"
 #include "relay.h"
 #include "rendclient.h"
@@ -393,6 +394,9 @@ connection_edge_end(edge_connection_t *conn, uint8_t reason)
 
   conn->edge_has_sent_end = 1;
   conn->end_reason = control_reason;
+  if(get_options()->EnablePrivCount) {
+      privcount_stream_ended(conn);
+  }
   return 0;
 }
 
