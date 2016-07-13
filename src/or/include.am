@@ -70,6 +70,7 @@ LIBTOR_A_SOURCES = \
 	src/or/periodic.c				\
 	src/or/protover.c				\
 	src/or/policies.c				\
+	src/or/privcount.c				\
 	src/or/reasons.c				\
 	src/or/relay.c					\
 	src/or/rendcache.c				\
@@ -188,6 +189,7 @@ ORHEADERS = \
 	src/or/transports.h				\
 	src/or/parsecommon.h			\
 	src/or/periodic.h				\
+	src/or/privcount.h				\
 	src/or/policies.h				\
 	src/or/protover.h				\
 	src/or/reasons.h				\

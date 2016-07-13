@@ -1166,6 +1166,7 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_HS_DESC, "HS_DESC" },
   { EVENT_HS_DESC_CONTENT, "HS_DESC_CONTENT" },
   { EVENT_NETWORK_LIVENESS, "NETWORK_LIVENESS" },
+  { EVENT_PRIVCOUNT, "PRIVCOUNT" },
   { 0, NULL },
 };
 
@@ -5808,6 +5809,16 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
                        (unsigned long)n_written);
   }
 
+  return 0;
+}
+
+int
+control_event_privcount(char* msg, size_t msg_len) {
+  (void)msg_len;
+  if (get_options()->EnablePrivCount && EVENT_IS_INTERESTING(EVENT_PRIVCOUNT)) {
+    send_control_event(EVENT_PRIVCOUNT,
+                       "650 PRIVCOUNT %s\r\n", msg);
+  }
   return 0;
 }
 

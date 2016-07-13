@@ -108,6 +108,7 @@
 #endif
 #include "memarea.h"
 #include "sandbox.h"
+#include "privcount.h"
 
 #include <event2/event.h>
 

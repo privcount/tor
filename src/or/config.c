@@ -451,6 +451,7 @@ static config_var_t option_vars_[] = {
   V(ProtocolWarnings,            BOOL,     "0"),
   V(PublishServerDescriptor,     CSV,      "1"),
   V(PublishHidServDescriptors,   BOOL,     "1"),
+  V(EnablePrivCount,             BOOL,     "0"),
   V(ReachableAddresses,          LINELIST, NULL),
   V(ReachableDirAddresses,       LINELIST, NULL),
   V(ReachableORAddresses,        LINELIST, NULL),

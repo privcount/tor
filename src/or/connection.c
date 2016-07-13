@@ -86,6 +86,7 @@
 #include "hs_common.h"
 #include "nodelist.h"
 #include "policies.h"
+#include "privcount.h"
 #include "reasons.h"
 #include "relay.h"
 #include "rendclient.h"
@@ -458,6 +459,7 @@ connection_init(time_t now, connection_t *conn, int type, int socket_family)
   conn->timestamp_created = now;
   conn->timestamp_lastread = now;
   conn->timestamp_lastwritten = now;
+  tor_gettimeofday(&conn->timestamp_created_tv);
 }
 
 /** Create a link between <b>conn_a</b> and <b>conn_b</b>. */
@@ -833,6 +835,9 @@ connection_mark_for_close_internal_, (connection_t *conn,
               "Calling connection_mark_for_close_internal_() on an OR conn "
               "at %s:%d",
               file, line);
+    if(get_options()->EnablePrivCount) {
+      privcount_connection_ended(TO_OR_CONN(conn));
+    }
   }
 
   conn->marked_for_close = line;
@@ -3652,6 +3657,7 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
       else
         edge_conn->n_read = UINT32_MAX;
 
+
       if (circ && CIRCUIT_IS_ORIGIN(circ)) {
         ocirc = TO_ORIGIN_CIRCUIT(circ);
         if (PREDICT_LIKELY(UINT32_MAX - ocirc->n_read_circ_bw > n_read))
@@ -3659,6 +3665,32 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
         else
           ocirc->n_read_circ_bw = UINT32_MAX;
       }
+    }
+
+    if (get_options()->EnablePrivCount && conn->type == CONN_TYPE_EXIT) {
+        /* count streams and circ bandwidth for streams at exit */
+        edge_connection_t *edge_conn = TO_EDGE_CONN(conn);
+        circuit_t *circ = circuit_get_by_edge_conn(edge_conn);
+
+        if(circ && CIRCUIT_IS_ORCIRC(circ)) {
+            if (PREDICT_LIKELY(UINT64_MAX - edge_conn->privcount_n_read > n_read))
+                edge_conn->privcount_n_read += (uint64_t)n_read;
+            else
+                edge_conn->privcount_n_read = UINT64_MAX;
+
+            or_circuit_t* orcirc = TO_OR_CIRCUIT(circ);
+            if(edge_conn->is_dns_request) {
+                if (PREDICT_LIKELY(UINT64_MAX - orcirc->privcount_n_read_dns > n_read))
+                    orcirc->privcount_n_read_dns += (uint64_t)n_read;
+                else
+                    orcirc->privcount_n_read_dns = UINT64_MAX;
+            } else if(conn->type == CONN_TYPE_EXIT) {
+                if (PREDICT_LIKELY(UINT64_MAX - orcirc->privcount_n_read_exit > n_read))
+                    orcirc->privcount_n_read_exit += (uint64_t)n_read;
+                else
+                    orcirc->privcount_n_read_exit = UINT64_MAX;
+            }
+        }
     }
 
     /* If CONN_BW events are enabled, update conn->n_read_conn_bw for
@@ -3950,6 +3982,32 @@ connection_handle_write_impl(connection_t *conn, int force)
       else
         ocirc->n_written_circ_bw = UINT32_MAX;
     }
+  }
+
+  if (n_written > 0 && get_options()->EnablePrivCount && conn->type == CONN_TYPE_EXIT) {
+      /* count streams and circ bandwidth for streams at exit */
+      edge_connection_t *edge_conn = TO_EDGE_CONN(conn);
+      circuit_t *circ = circuit_get_by_edge_conn(edge_conn);
+
+      if(circ && CIRCUIT_IS_ORCIRC(circ)) {
+          if (PREDICT_LIKELY(UINT64_MAX - edge_conn->privcount_n_written > n_written))
+              edge_conn->privcount_n_written += (uint64_t)n_written;
+          else
+              edge_conn->privcount_n_written = UINT64_MAX;
+
+          or_circuit_t* orcirc = TO_OR_CIRCUIT(circ);
+          if(edge_conn->is_dns_request) {
+              if (PREDICT_LIKELY(UINT64_MAX - orcirc->privcount_n_written_dns > n_written))
+                  orcirc->privcount_n_written_dns += (uint64_t)n_written;
+              else
+                  orcirc->privcount_n_written_dns = UINT64_MAX;
+          } else if(conn->type == CONN_TYPE_EXIT) {
+              if (PREDICT_LIKELY(UINT64_MAX - orcirc->privcount_n_written_exit > n_written))
+                  orcirc->privcount_n_written_exit += (uint64_t)n_written;
+              else
+                  orcirc->privcount_n_written_exit = UINT64_MAX;
+          }
+      }
   }
 
   /* If CONN_BW events are enabled, update conn->n_written_conn_bw for
@@ -5197,4 +5255,3 @@ clock_skew_warning(const connection_t *conn, long apparent_skew, int trusted,
                                  apparent_skew, ext_source);
   tor_free(ext_source);
 }
-

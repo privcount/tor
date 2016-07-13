@@ -2678,6 +2678,15 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
         or_circ->processed_cells++;
       }
 
+      if(get_options()->EnablePrivCount && !CIRCUIT_IS_ORIGIN(circ)) {
+          or_circ = TO_OR_CIRCUIT(circ);
+          if(chan == or_circ->p_chan) {
+              or_circ->privcount_n_cells_in++;
+          } else if (chan == circ->n_chan) {
+              or_circ->privcount_n_cells_out++;
+          }
+      }
+
       if (get_options()->TestingEnableCellStatsEvent) {
         uint8_t command = packed_cell_get_command(cell, chan->wide_circ_ids);
 

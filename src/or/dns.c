@@ -50,6 +50,7 @@
 #define DNS_PRIVATE
 
 #include "or.h"
+#include "channel.h"
 #include "circuitlist.h"
 #include "circuituse.h"
 #include "config.h"
@@ -60,6 +61,7 @@
 #include "main.h"
 #include "policies.h"
 #include "relay.h"
+#include "privcount.h"
 #include "router.h"
 #include "ht.h"
 #include "sandbox.h"
@@ -612,6 +614,10 @@ dns_resolve(edge_connection_t *exitconn)
 
   r = dns_resolve_impl(exitconn, is_resolve, oncirc, &hostname,
                        &made_connection_pending, &resolve);
+
+  if(get_options()->EnablePrivCount){
+    privcount_dns_resolved(exitconn, oncirc);
+  }
 
   switch (r) {
     case 1:
