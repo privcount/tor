@@ -66,6 +66,7 @@
 #endif
 #include "memarea.h"
 #include "sandbox.h"
+#include "privcount.h"
 
 #ifdef HAVE_EVENT2_EVENT_H
 #include <event2/event.h>

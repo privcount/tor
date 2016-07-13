@@ -27,6 +27,7 @@
 #include "onion.h"
 #include "onion_fast.h"
 #include "policies.h"
+#include "privcount.h"
 #include "relay.h"
 #include "rendclient.h"
 #include "rendcommon.h"
@@ -1230,6 +1231,13 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
 
   SMARTLIST_FOREACH_BEGIN(detached, circuit_t *, circ) {
     int mark = 0;
+    if(get_options()->EnablePrivCount && !CIRCUIT_IS_ORIGIN(circ)) {
+        /* need to record end before clearing ids and pointers */
+        or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
+        if(circ->n_chan == chan || or_circ->p_chan == chan) {
+            privcount_circuit_ended(or_circ);
+        }
+    }
     if (circ->n_chan == chan) {
 
       circuit_set_n_circid_chan(circ, 0, NULL);
@@ -1760,6 +1768,11 @@ circuit_mark_for_close_, (circuit_t *circ, int reason, int line,
                                               INTRO_POINT_FAILURE_UNREACHABLE);
       }
     }
+  }
+
+  /* do this before clearing n_chan and p_chan */
+  if (!CIRCUIT_IS_ORIGIN(circ) && get_options()->EnablePrivCount) {
+    privcount_circuit_ended(TO_OR_CIRCUIT(circ));
   }
 
   if (circ->n_chan) {
