@@ -5114,6 +5114,7 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
 
 int
 control_event_privcount(char* msg, size_t msg_len) {
+  (void)msg_len;
   if (get_options()->EnablePrivCount && EVENT_IS_INTERESTING(EVENT_PRIVCOUNT)) {
     send_control_event(EVENT_PRIVCOUNT,
                        "650 PRIVCOUNT %s\r\n", msg);
