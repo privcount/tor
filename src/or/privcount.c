@@ -37,6 +37,43 @@ int privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc) {
     return control_event_privcount(sendBuff, strlen(sendBuff));
 }
 
+int privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int outbound) {
+    if(!get_options()->EnablePrivCount) {
+        return 0;
+    }
+    if(!conn) {
+        return 0;
+    }
+    if(conn->base_.type != CONN_TYPE_EXIT) {
+        return 0;
+    }
+
+    /* if the circuit started here, this is our own stream and we can ignore it */
+    circuit_t* circ = circuit_get_by_edge_conn(conn);
+    or_circuit_t *orcirc = NULL;
+    if(circ) {
+        if(CIRCUIT_IS_ORIGIN(circ)) {
+            return 0;
+        }
+        /* now we know its an or_circuit_t */
+        orcirc = TO_OR_CIRCUIT(circ);
+    }
+
+    struct timeval now;
+    tor_gettimeofday(&now);
+    char sendBuff[512];
+
+    /* ChanID, CircID, StreamID, BW, Direction, Time */
+    snprintf(sendBuff, 512, "b %"PRIu64" %"PRIu32" %"PRIu16" %s %"PRIu64" %ld.%06ld",
+            orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
+            orcirc ? orcirc->p_circ_id : 0,
+            conn->stream_id,
+            (outbound == 1) ? "outbound" : "inbound",
+            amt,
+            (long)now.tv_sec, (long)now.tv_usec);
+    return control_event_privcount(sendBuff, strlen(sendBuff));
+}
+
 int privcount_stream_ended(edge_connection_t *conn) {
     if(!get_options()->EnablePrivCount) {
         return 0;
