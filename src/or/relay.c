@@ -2665,6 +2665,15 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
      */
     cell = cell_queue_pop(queue);
 
+    if(get_options()->EnablePrivCount && !CIRCUIT_IS_ORIGIN(circ)) {
+      or_circ = TO_OR_CIRCUIT(circ);
+      if(chan == or_circ->p_chan) {
+        or_circ->privcount_n_cells_in++;
+      } else if (chan == circ->n_chan) {
+        or_circ->privcount_n_cells_out++;
+      }
+    }
+
     /* Calculate the exact time that this cell has spent in the queue. */
     if (get_options()->CellStatistics ||
         get_options()->TestingEnableCellStatsEvent) {
@@ -2676,15 +2685,6 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
         or_circ = TO_OR_CIRCUIT(circ);
         or_circ->total_cell_waiting_time += msec_waiting;
         or_circ->processed_cells++;
-      }
-
-      if(get_options()->EnablePrivCount && !CIRCUIT_IS_ORIGIN(circ)) {
-          or_circ = TO_OR_CIRCUIT(circ);
-          if(chan == or_circ->p_chan) {
-              or_circ->privcount_n_cells_in++;
-          } else if (chan == circ->n_chan) {
-              or_circ->privcount_n_cells_out++;
-          }
       }
 
       if (get_options()->TestingEnableCellStatsEvent) {
