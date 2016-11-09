@@ -148,11 +148,11 @@ void control_event_hs_descriptor_content(const char *onion_address,
                                          const char *hsdir_fp,
                                          const char *content);
 
-int control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc);
-int control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int outbound);
-int control_event_privcount_stream_ended(edge_connection_t *conn);
-int control_event_privcount_circuit_ended(or_circuit_t *orcirc);
-int control_event_privcount_connection_ended(or_connection_t *orconn);
+void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc);
+void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int outbound);
+void control_event_privcount_stream_ended(edge_connection_t *conn);
+void control_event_privcount_circuit_ended(or_circuit_t *orcirc);
+void control_event_privcount_connection_ended(or_connection_t *orconn);
 
 void control_free_all(void);
 
@@ -198,8 +198,12 @@ void control_free_all(void);
 #define EVENT_HS_DESC                 0x0021
 #define EVENT_HS_DESC_CONTENT         0x0022
 #define EVENT_NETWORK_LIVENESS        0x0023
-#define EVENT_PRIVCOUNT               0x0024
-#define EVENT_MAX_                    0x0024
+#define EVENT_PRIVCOUNT_DNS_RESOLVED                0x0024
+#define EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED    0x0025
+#define EVENT_PRIVCOUNT_STREAM_ENDED                0x0026
+#define EVENT_PRIVCOUNT_CIRCUIT_ENDED               0x0027
+#define EVENT_PRIVCOUNT_CONNECTION_ENDED            0x0028
+#define EVENT_MAX_                    0x0028
 
 /* sizeof(control_connection_t.event_mask) in bits, currently a uint64_t */
 #define EVENT_CAPACITY_               0x0040
