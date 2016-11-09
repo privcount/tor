@@ -86,7 +86,6 @@
 #include "hs_common.h"
 #include "nodelist.h"
 #include "policies.h"
-#include "privcount.h"
 #include "reasons.h"
 #include "relay.h"
 #include "rendclient.h"
@@ -836,7 +835,7 @@ connection_mark_for_close_internal_, (connection_t *conn,
               "at %s:%d",
               file, line);
     if(get_options()->EnablePrivCount) {
-      privcount_connection_ended(TO_OR_CONN(conn));
+      control_event_privcount_connection_ended(TO_OR_CONN(conn));
     }
   }
 
@@ -3679,7 +3678,7 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
                 edge_conn->privcount_n_read = UINT64_MAX;
 
             or_circuit_t* orcirc = TO_OR_CIRCUIT(circ);
-            privcount_stream_data_xferred(edge_conn, (uint64_t)n_read, 0);
+            control_event_privcount_stream_data_xferred(edge_conn, (uint64_t)n_read, 0);
             if(edge_conn->is_dns_request) {
                 if (PREDICT_LIKELY(UINT64_MAX - orcirc->privcount_n_read_dns > n_read))
                     orcirc->privcount_n_read_dns += (uint64_t)n_read;
@@ -3997,7 +3996,7 @@ connection_handle_write_impl(connection_t *conn, int force)
               edge_conn->privcount_n_written = UINT64_MAX;
 
           or_circuit_t* orcirc = TO_OR_CIRCUIT(circ);
-          privcount_stream_data_xferred(edge_conn, (uint64_t)n_written, 1);
+          control_event_privcount_stream_data_xferred(edge_conn, (uint64_t)n_written, 1);
           if(edge_conn->is_dns_request) {
               if (PREDICT_LIKELY(UINT64_MAX - orcirc->privcount_n_written_dns > n_written))
                   orcirc->privcount_n_written_dns += (uint64_t)n_written;

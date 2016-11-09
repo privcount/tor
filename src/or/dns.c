@@ -61,7 +61,6 @@
 #include "main.h"
 #include "policies.h"
 #include "relay.h"
-#include "privcount.h"
 #include "router.h"
 #include "ht.h"
 #include "sandbox.h"
@@ -616,7 +615,7 @@ dns_resolve(edge_connection_t *exitconn)
                        &made_connection_pending, &resolve);
 
   if(get_options()->EnablePrivCount){
-    privcount_dns_resolved(exitconn, oncirc);
+    control_event_privcount_dns_resolved(exitconn, oncirc);
   }
 
   switch (r) {
