@@ -148,7 +148,11 @@ void control_event_hs_descriptor_content(const char *onion_address,
                                          const char *hsdir_fp,
                                          const char *content);
 
-int control_event_privcount(char* msg, size_t msg_len);
+int control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc);
+int control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int outbound);
+int control_event_privcount_stream_ended(edge_connection_t *conn);
+int control_event_privcount_circuit_ended(or_circuit_t *orcirc);
+int control_event_privcount_connection_ended(or_connection_t *orconn);
 
 void control_free_all(void);
 

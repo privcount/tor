@@ -49,7 +49,6 @@
 #include "hibernate.h"
 #include "nodelist.h"
 #include "onion.h"
-#include "privcount.h"
 #include "rephist.h"
 #include "relay.h"
 #include "router.h"
@@ -576,7 +575,7 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
       chan == TO_OR_CIRCUIT(circ)->p_chan &&
       cell->circ_id == TO_OR_CIRCUIT(circ)->p_circ_id) {
     if(get_options()->EnablePrivCount && !CIRCUIT_IS_ORIGIN(circ)) {
-        privcount_circuit_ended(TO_OR_CIRCUIT(circ));
+        control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
     }
     /* the destroy came from behind */
     circuit_set_p_circid_chan(TO_OR_CIRCUIT(circ), 0, NULL);
