@@ -424,9 +424,9 @@ connection_edge_end(edge_connection_t *conn, uint8_t reason)
 
   conn->edge_has_sent_end = 1;
   conn->end_reason = control_reason;
-  if(get_options()->EnablePrivCount) {
-      control_event_privcount_stream_ended(conn);
-  }
+
+  control_event_privcount_stream_ended(conn);
+
   return 0;
 }
 

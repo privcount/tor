@@ -1393,7 +1393,7 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
 
   SMARTLIST_FOREACH_BEGIN(detached, circuit_t *, circ) {
     int mark = 0;
-    if(get_options()->EnablePrivCount && !CIRCUIT_IS_ORIGIN(circ)) {
+    if(!CIRCUIT_IS_ORIGIN(circ)) {
         /* need to record end before clearing ids and pointers */
         or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
         if(circ->n_chan == chan || or_circ->p_chan == chan) {
@@ -1913,7 +1913,7 @@ circuit_about_to_free(circuit_t *circ)
   }
 
   /* do this before clearing n_chan and p_chan */
-  if (!CIRCUIT_IS_ORIGIN(circ) && get_options()->EnablePrivCount) {
+  if (!CIRCUIT_IS_ORIGIN(circ)) {
     control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
   }
 

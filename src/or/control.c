@@ -1166,7 +1166,11 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_HS_DESC, "HS_DESC" },
   { EVENT_HS_DESC_CONTENT, "HS_DESC_CONTENT" },
   { EVENT_NETWORK_LIVENESS, "NETWORK_LIVENESS" },
-  { EVENT_PRIVCOUNT, "PRIVCOUNT" },
+  { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
+  { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED, "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
+  { EVENT_PRIVCOUNT_STREAM_ENDED, "PRIVCOUNT_STREAM_ENDED" },
+  { EVENT_PRIVCOUNT_CIRCUIT_ENDED, "PRIVCOUNT_CIRCUIT_ENDED" },
+  { EVENT_PRIVCOUNT_CONNECTION_ENDED, "PRIVCOUNT_CONNECTION_ENDED" },
   { 0, NULL },
 };
 
@@ -5812,45 +5816,29 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
   return 0;
 }
 
-int
-control_event_privcount(char* msg, size_t msg_len) {
-  (void)msg_len;
-  if (get_options()->EnablePrivCount && EVENT_IS_INTERESTING(EVENT_PRIVCOUNT)) {
-    send_control_event(EVENT_PRIVCOUNT,
-                       "650 PRIVCOUNT %s\r\n", msg);
-  }
-  return 0;
-}
-
-int control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc) {
-    // rgj - we dont want to count dns for now
-    return 0;
-
-    if(!get_options()->EnablePrivCount) {
-        return 0;
+void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc) {
+    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_DNS_RESOLVED)) {
+        return;
     }
+
     if(!oncirc || !oncirc->p_chan || !exitconn) {
-        return 0;
+        return;
     }
 
-    /** sendBUff[512] is big enough since the domain is going to be 256 bytes,
-    *   the channelID will be at most 20 bytes, the circuitID 10 bytes, and then
-    *   the "a " and two spaces will take up 4 bytes.
-    */
-    char sendBuff[512];
-    snprintf(sendBuff, 512, "a %" PRIu64 " %" PRIu32 " %s", oncirc->p_chan->global_identifier, oncirc->p_circ_id, exitconn->base_.address);
-    return control_event_privcount(sendBuff, strlen(sendBuff));
+    send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
+                       "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %s\r\n",
+                       oncirc->p_chan->global_identifier,
+                       oncirc->p_circ_id,
+                       exitconn->base_.address);
 }
 
-int control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int outbound) {
-    if(!get_options()->EnablePrivCount) {
-        return 0;
+void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int outbound) {
+    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED)) {
+        return;
     }
-    if(!conn) {
-        return 0;
-    }
-    if(conn->base_.type != CONN_TYPE_EXIT) {
-        return 0;
+
+    if(!conn || conn->base_.type != CONN_TYPE_EXIT) {
+        return;
     }
 
     /* if the circuit started here, this is our own stream and we can ignore it */
@@ -5858,7 +5846,7 @@ int control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_
     or_circuit_t *orcirc = NULL;
     if(circ) {
         if(CIRCUIT_IS_ORIGIN(circ)) {
-            return 0;
+            return;
         }
         /* now we know its an or_circuit_t */
         orcirc = TO_OR_CIRCUIT(circ);
@@ -5866,26 +5854,25 @@ int control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_
 
     struct timeval now;
     tor_gettimeofday(&now);
-    char sendBuff[512];
 
     /* ChanID, CircID, StreamID, BW, Direction, Time */
-    snprintf(sendBuff, 512, "b %"PRIu64" %"PRIu32" %"PRIu16" %s %"PRIu64" %ld.%06ld",
+    send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
+            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %s %"PRIu64" %ld.%06ld\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             conn->stream_id,
             (outbound == 1) ? "outbound" : "inbound",
             amt,
             (long)now.tv_sec, (long)now.tv_usec);
-    return control_event_privcount(sendBuff, strlen(sendBuff));
 }
 
-int control_event_privcount_stream_ended(edge_connection_t *conn) {
-    if(!get_options()->EnablePrivCount) {
-        return 0;
+void control_event_privcount_stream_ended(edge_connection_t *conn) {
+    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED)) {
+        return;
     }
 
     if(!conn) {
-        return 0;
+        return;
     }
 
     /* if the circuit started here, this is our own stream and we can ignore it */
@@ -5893,7 +5880,7 @@ int control_event_privcount_stream_ended(edge_connection_t *conn) {
     or_circuit_t *orcirc = NULL;
     if(circ) {
         if(CIRCUIT_IS_ORIGIN(circ)) {
-            return 0;
+            return;
         }
         /* now we know its an or_circuit_t */
         orcirc = TO_OR_CIRCUIT(circ);
@@ -5905,7 +5892,7 @@ int control_event_privcount_stream_ended(edge_connection_t *conn) {
     /* only collect stream info from exits to legitimate client-bound destinations.
      * this means we wont get hidden-service related info */
     if(conn->base_.type != CONN_TYPE_EXIT) {
-        return 0;
+        return;
     }
     int is_dns = conn->is_dns_request; // means a dns lookup
     int is_dir = (conn->dirreq_id != 0 || conn->base_.port == 1) ? 1 : 0; // means a dir request
@@ -5913,10 +5900,10 @@ int control_event_privcount_stream_ended(edge_connection_t *conn) {
 
     struct timeval now;
     tor_gettimeofday(&now);
-    char sendBuff[512];
 
     /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd, isDNS, isDir */
-    snprintf(sendBuff, 512, "s %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %d %d",
+    send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
+            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %d %d\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             conn->stream_id, conn->base_.port,
@@ -5924,18 +5911,15 @@ int control_event_privcount_stream_ended(edge_connection_t *conn) {
             (long)conn->base_.timestamp_created_tv.tv_sec, (long)conn->base_.timestamp_created_tv.tv_usec,
             (long)now.tv_sec, (long)now.tv_usec,
             is_dns, is_dir);
-    return control_event_privcount(sendBuff, strlen(sendBuff));
 }
 
-int control_event_privcount_circuit_ended(or_circuit_t *orcirc) {
-    if(!get_options()->EnablePrivCount) {
-        return 0;
+void control_event_privcount_circuit_ended(or_circuit_t *orcirc) {
+    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+        return;
     }
-    if(!orcirc) {
-        return 0;
-    }
-    if(orcirc->privcount_event_emitted) {
-        return 0;
+
+    if(!orcirc || orcirc->privcount_event_emitted) {
+        return;
     }
 
     /* only collect circuit info from first hops on circuits that were actually used
@@ -5962,10 +5946,10 @@ int control_event_privcount_circuit_ended(or_circuit_t *orcirc) {
 
     struct timeval now;
     tor_gettimeofday(&now);
-    char sendBuff[512];
 
     /* ChanID, CircID, nCellsIn, nCellsOut, ReadBWDNS, WriteBWDNS, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, prevIsClient, prevIsRelay, NextIP, nextIsClient, nextIsRelay */
-    snprintf(sendBuff, 512, "c %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d %s %d %d",
+    send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
+            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d %s %d %d\r\n",
             orcirc->p_chan ? orcirc->p_chan->global_identifier : 0, orcirc->p_circ_id,
             orcirc->privcount_n_cells_in, orcirc->privcount_n_cells_out,
             orcirc->privcount_n_read_dns, orcirc->privcount_n_written_dns,
@@ -5976,15 +5960,15 @@ int control_event_privcount_circuit_ended(or_circuit_t *orcirc) {
             prev_is_client, prev_is_relay,
             orcirc->base_.n_chan ? channel_get_actual_remote_address(orcirc->base_.n_chan) : "0.0.0.0",
             next_is_client, next_is_relay);
-    return control_event_privcount(sendBuff, strlen(sendBuff));
 }
 
-int control_event_privcount_connection_ended(or_connection_t *orconn) {
-    if(!get_options()->EnablePrivCount) {
-        return 0;
+void control_event_privcount_connection_ended(or_connection_t *orconn) {
+    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
+        return;
     }
+
     if(!orconn) {
-        return 0;
+        return;
     }
 
     channel_t* p_chan = (channel_t*)orconn->chan;
@@ -6000,16 +5984,15 @@ int control_event_privcount_connection_ended(or_connection_t *orconn) {
 
     struct timeval now;
     tor_gettimeofday(&now);
-    char sendBuff[512];
 
     /* ChanID, TimeStart, TimeEnd, IP, isClient, isRelay */
-    snprintf(sendBuff, 512, "t %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d",
+    send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
+            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d\r\n",
             p_chan ? p_chan->global_identifier : 0,
             (long)orconn->base_.timestamp_created_tv.tv_sec, (long)orconn->base_.timestamp_created_tv.tv_usec,
             (long)now.tv_sec, (long)now.tv_usec,
             p_chan ? channel_get_actual_remote_address(p_chan) : "0.0.0.0",
             is_client, is_relay);
-    return control_event_privcount(sendBuff, strlen(sendBuff));
 }
 
 STATIC char *

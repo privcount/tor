@@ -614,9 +614,7 @@ dns_resolve(edge_connection_t *exitconn)
   r = dns_resolve_impl(exitconn, is_resolve, oncirc, &hostname,
                        &made_connection_pending, &resolve);
 
-  if(get_options()->EnablePrivCount){
-    control_event_privcount_dns_resolved(exitconn, oncirc);
-  }
+  control_event_privcount_dns_resolved(exitconn, oncirc);
 
   switch (r) {
     case 1:
