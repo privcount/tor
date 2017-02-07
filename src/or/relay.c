@@ -2665,9 +2665,13 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
      */
     cell = cell_queue_pop(queue);
 
-    if(get_options()->EnablePrivCount && !CIRCUIT_IS_ORIGIN(circ)) {
+    if (privcount_is_counted_for_cells(NULL, circ)) {
+      /* We can't use or_circ as-is, because it's only set when
+       * chan == or_circ->p_chan
+       * But it's safe to overwrite it here, because the cell statistics code
+       * sets it before using it, too. */
       or_circ = TO_OR_CIRCUIT(circ);
-      if(chan == or_circ->p_chan) {
+      if (chan == or_circ->p_chan) {
         or_circ->privcount_n_cells_in++;
       } else if (chan == circ->n_chan) {
         or_circ->privcount_n_cells_out++;
