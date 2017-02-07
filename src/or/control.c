@@ -5810,7 +5810,7 @@ void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circui
                        exitconn->base_.address);
 }
 
-void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int outbound) {
+void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int is_outbound) {
     if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED)) {
         return;
     }
@@ -5839,7 +5839,7 @@ void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             conn->stream_id,
-            (outbound == 1) ? "outbound" : "inbound",
+            is_outbound,
             amt,
             (long)now.tv_sec, (long)now.tv_usec);
 }
