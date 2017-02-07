@@ -5868,13 +5868,15 @@ void control_event_privcount_stream_ended(edge_connection_t *conn) {
     //CIRCUIT_PURPOSE_IS_CLIENT(circ->purpose)
 
     /* only collect stream info from exits to legitimate client-bound destinations.
-     * this means we wont get hidden-service related info */
+     * this means we wont get hidden-service related info or DirPort requests,
+     * but we will get BEGINDIR (directory over ORPort) requests */
     if(conn->base_.type != CONN_TYPE_EXIT) {
         return;
     }
     int is_dns = conn->is_dns_request; // means a dns lookup
-    int is_dir = (conn->dirreq_id != 0 || conn->base_.port == 1) ? 1 : 0; // means a dir request
-    //int is_dir = (conn->base_.type == CONN_TYPE_DIR) ? 1 : 0;
+    // this is the canonical way of checking for a BEGINDIR connection
+    int has_linked_dirconn = (conn->base_.linked_conn && conn->base_.linked_conn->type == CONN_TYPE_DIR);
+    int is_dir = has_linked_dirconn ? 1 : 0; // means a dir request
 
     struct timeval now;
     tor_gettimeofday(&now);
