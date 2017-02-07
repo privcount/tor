@@ -148,11 +148,25 @@ void control_event_hs_descriptor_content(const char *onion_address,
                                          const char *hsdir_fp,
                                          const char *content);
 
-void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc);
-void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int is_outbound);
-void control_event_privcount_stream_ended(edge_connection_t *conn);
+or_circuit_t* privcount_get_or_circuit(edge_connection_t* exitconn,
+                                       or_circuit_t *orcirc);
+int privcount_is_counted_for_bytes(const edge_connection_t* exitconn,
+                                   const or_circuit_t *orcirc);
+int privcount_is_counted_for_cells(const connection_t *conn,
+                                   const circuit_t *circ);
+int privcount_is_counted_for_dns(const edge_connection_t* exitconn,
+                                 const or_circuit_t *orcirc);
+void privcount_sum(uint64_t *total, uint64_t increment);
+
+void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
+                                          const or_circuit_t *orcirc);
+void control_event_privcount_stream_data_xferred(
+                                            const edge_connection_t *exitconn,
+                                            const or_circuit_t *orcirc,
+                                            uint64_t amt, int is_outbound);
+void control_event_privcount_stream_ended(const edge_connection_t *exitconn);
 void control_event_privcount_circuit_ended(or_circuit_t *orcirc);
-void control_event_privcount_connection_ended(or_connection_t *orconn);
+void control_event_privcount_connection_ended(const or_connection_t *orconn);
 
 void control_free_all(void);
 
