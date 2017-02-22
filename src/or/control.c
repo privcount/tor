@@ -5835,7 +5835,7 @@ void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64
 
     /* ChanID, CircID, StreamID, BW, Direction, Time */
     send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
-            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %s %"PRIu64" %ld.%06ld\r\n",
+            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %d %"PRIu64" %ld.%06ld\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             conn->stream_id,
