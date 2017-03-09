@@ -574,9 +574,7 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
   if (!CIRCUIT_IS_ORIGIN(circ) &&
       chan == TO_OR_CIRCUIT(circ)->p_chan &&
       cell->circ_id == TO_OR_CIRCUIT(circ)->p_circ_id) {
-    if(!CIRCUIT_IS_ORIGIN(circ)) {
-        control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
-    }
+    control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
     /* the destroy came from behind */
     circuit_set_p_circid_chan(TO_OR_CIRCUIT(circ), 0, NULL);
     circuit_mark_for_close(circ, reason|END_CIRC_REASON_FLAG_REMOTE);
