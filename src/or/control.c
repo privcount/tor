@@ -5794,6 +5794,95 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
   return 0;
 }
 
+/* Is conn itself a directory server connection? */
+static int
+privcount_connection_is_dir_server_conn(connection_t *conn) {
+  /* DirPort connections, or the directory side of linked BEGINDIR connections
+   */
+  return conn && conn->type == CONN_TYPE_DIR && DIR_CONN_IS_SERVER(conn);
+}
+
+/* Is conn a directory connection or BEGINDIR connection that ends at this
+ * relay? */
+static int
+privcount_connection_is_dir(connection_t *conn)
+{
+  if (!conn) {
+    /* Assume missing connections are *not* directory connections */
+    return 0;
+  }
+
+  if (privcount_connection_is_dir_server_conn(conn)) {
+    /* DirPort connections */
+    return 1;
+  }
+
+  if (conn->type == CONN_TYPE_EXIT) {
+    /* Some EXIT connections are BEGINDIR, others Exit to the Internet */
+    if (conn->linked) {
+      /* All BEGINDIR connections must have been linked, and only directory
+       * connections use connection_ap_make_link() */
+      if (conn->linked_conn) {
+        tor_assert_nonfatal(
+                  privcount_connection_is_dir_server_conn(conn->linked_conn));
+      }
+      /* All BEGINDIR connections are CONNECT (rather than RESOLVE) */
+      tor_assert_nonfatal(conn->purpose == EXIT_PURPOSE_CONNECT);
+      return 1;
+    } else {
+      /* If it wasn't linked, it wasn't BEGINDIR */
+      return 0;
+    }
+  }
+
+  /* If it wasn't EXIT or DIR, it wasn't a directory connection */
+  return 0;
+}
+
+/* Is circ a directory circuit that ends at this relay? */
+static int
+privcount_circuit_is_dir(circuit_t *circ)
+{
+  if (!circ) {
+    /* Assume missing circuits are *not* directory circuits */
+    return 0;
+  }
+
+  if (!CIRCUIT_IS_ORCIRC(circ)) {
+    /* Origin circuits are *not* server directory circuits */
+    return 0;
+  }
+
+  if (circ->purpose != CIRCUIT_PURPOSE_OR) {
+    /* Only OR circuits can be server directory circuits */
+    return 0;
+  }
+
+  if (circ->dirreq_id != 0) {
+    /* BEGINDIR connections all have dirreq_id set when processing
+     * RELAY_COMMAND_BEGIN_DIR */
+    return 1;
+  }
+
+  /* If it doesn't have dirreq_id set, it's not a directory circuit */
+  return 0;
+}
+
+/* Are conn or circ directory-related, and do they end at this relay? */
+static int
+privcount_is_dir(connection_t* conn, circuit_t *circ)
+{
+  int conn_is_dir = privcount_connection_is_dir(conn);
+  int circ_is_dir = privcount_circuit_is_dir(circ);
+
+  /* Make sure we're getting consistent results */
+  if (conn && circ) {
+    tor_assert_nonfatal(conn_is_dir == circ_is_dir);
+  }
+
+  return conn_is_dir || circ_is_dir;
+}
+
 void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc) {
     if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_DNS_RESOLVED)) {
         return;
@@ -5802,6 +5891,10 @@ void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circui
     if(!oncirc || !oncirc->p_chan || !exitconn) {
         return;
     }
+
+    /* DNS connections are not directory connections */
+    int is_dir = privcount_is_dir(TO_CONN(exitconn), TO_CIRCUIT(oncirc));
+    tor_assert_nonfatal(!is_dir);
 
     send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
                        "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %s\r\n",
@@ -5832,6 +5925,12 @@ void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64
 
     struct timeval now;
     tor_gettimeofday(&now);
+
+    /* Filter out directory data */
+    int is_dir = privcount_is_dir(TO_CONN(conn), circ);
+    if (is_dir) {
+      return;
+    }
 
     /* ChanID, CircID, StreamID, BW, Direction, Time */
     send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
@@ -5868,15 +5967,17 @@ void control_event_privcount_stream_ended(edge_connection_t *conn) {
     //CIRCUIT_PURPOSE_IS_CLIENT(circ->purpose)
 
     /* only collect stream info from exits to legitimate client-bound destinations.
-     * this means we wont get hidden-service related info or DirPort requests,
+     * this means we won't get hidden-service related info or DirPort requests,
      * but we will get BEGINDIR (directory over ORPort) requests */
     if(conn->base_.type != CONN_TYPE_EXIT) {
         return;
     }
     int is_dns = conn->is_dns_request; // means a dns lookup
-    // this is the canonical way of checking for a BEGINDIR connection
-    int has_linked_dirconn = (conn->base_.linked_conn && conn->base_.linked_conn->type == CONN_TYPE_DIR);
-    int is_dir = has_linked_dirconn ? 1 : 0; // means a dir request
+    /* Filter out directory streams */
+    int is_dir = privcount_is_dir(TO_CONN(conn), circ);
+    if (is_dir) {
+      return;
+    }
 
     struct timeval now;
     tor_gettimeofday(&now);
@@ -5927,6 +6028,12 @@ void control_event_privcount_circuit_ended(or_circuit_t *orcirc) {
     struct timeval now;
     tor_gettimeofday(&now);
 
+    /* Filter out directory circuits */
+    int is_dir = privcount_is_dir(NULL, TO_CIRCUIT(orcirc));
+    if (is_dir) {
+      return;
+    }
+
     /* ChanID, CircID, nCellsIn, nCellsOut, ReadBWDNS, WriteBWDNS, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, prevIsClient, prevIsRelay, NextIP, nextIsClient, nextIsRelay */
     send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
             "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d %s %d %d\r\n",
@@ -5964,6 +6071,12 @@ void control_event_privcount_connection_ended(or_connection_t *orconn) {
 
     struct timeval now;
     tor_gettimeofday(&now);
+
+    /* Filter out directory connections */
+    int is_dir = privcount_is_dir(TO_CONN(orconn), NULL);
+    if (is_dir) {
+      return;
+    }
 
     /* ChanID, TimeStart, TimeEnd, IP, isClient, isRelay */
     send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
