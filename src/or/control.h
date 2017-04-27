@@ -164,7 +164,7 @@ int privcount_data_is_used_for_connection_events(const connection_t *conn);
 int privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
                                           const or_circuit_t *orcirc);
 
-void privcount_sum(uint64_t *total, uint64_t increment);
+uint64_t privcount_add_saturating(uint64_t a, uint64_t b);
 
 void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
                                           const or_circuit_t *orcirc);

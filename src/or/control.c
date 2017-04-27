@@ -6145,23 +6145,15 @@ privcount_is_client(const channel_t* chan)
 }
 
 /* Perform a 64-bit saturating add of a and b */
-static uint64_t
+uint64_t
 privcount_add_saturating(uint64_t a, uint64_t b) {
+  /* Check before performing the addition to avoid overflow, even though it
+   * is defined as wrapping on unsigned integers. */
   if (PREDICT_LIKELY(UINT64_MAX - a > b)) {
     return a + b;
   } else {
     return UINT64_MAX;
   }
-}
-
-/* Perform a += b without overflow, and without returning a value
- * total must not be NULL */
-void
-privcount_sum(uint64_t *total, uint64_t increment) {
-  if (BUG(!total)) {
-    return;
-  }
-  *total = privcount_add_saturating(*total, increment);
 }
 
 #define NO_CHANNEL_ADDRESS "0.0.0.0"

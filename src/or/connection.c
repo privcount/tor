@@ -3624,8 +3624,12 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
       /* Filter out directory data (at the directory).
        * Avoid updating the counters if we will never use them. */
       if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
-        privcount_sum(&exitconn->privcount_n_read, n_read);
-        privcount_sum(&orcirc->privcount_n_read, n_read);
+        exitconn->privcount_n_read = privcount_add_saturating(
+                                                  exitconn->privcount_n_read,
+                                                  n_read);
+        orcirc->privcount_n_read = privcount_add_saturating(
+                                                  orcirc->privcount_n_read,
+                                                  n_read);
       }
       if (privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
         control_event_privcount_stream_data_xferred(exitconn, orcirc,
@@ -3931,8 +3935,12 @@ connection_handle_write_impl(connection_t *conn, int force)
     /* Filter out directory data (at the directory).
      * Avoid updating the counters if we will never use them. */
     if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
-      privcount_sum(&exitconn->privcount_n_written, n_written);
-      privcount_sum(&orcirc->privcount_n_written, n_written);
+      exitconn->privcount_n_written = privcount_add_saturating(
+                                                exitconn->privcount_n_written,
+                                                n_written);
+      orcirc->privcount_n_written = privcount_add_saturating(
+                                                orcirc->privcount_n_written,
+                                                n_written);
     }
     if (privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
       control_event_privcount_stream_data_xferred(exitconn, orcirc,
