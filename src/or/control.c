@@ -5816,7 +5816,8 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
   return 0;
 }
 
-/* Is conn itself a directory server connection? */
+/* Is conn itself a directory server connection?
+ * NULL connections are not classified as directory connections. */
 static int
 privcount_connection_is_dir_server_conn(const connection_t *conn) {
   /* DirPort connections, or the directory side of linked BEGINDIR connections
@@ -5825,12 +5826,12 @@ privcount_connection_is_dir_server_conn(const connection_t *conn) {
 }
 
 /* Is conn a directory connection or BEGINDIR connection that ends at this
- * relay? */
+ * relay?
+ * NULL connections are not classified as directory connections. */
 static int
 privcount_connection_is_dir(const connection_t *conn)
 {
   if (!conn) {
-    /* Assume missing connections are *not* directory connections */
     return 0;
   }
 
@@ -5861,12 +5862,12 @@ privcount_connection_is_dir(const connection_t *conn)
   return 0;
 }
 
-/* Is circ a directory circuit that ends at this relay? */
+/* Is circ a directory circuit that ends at this relay?
+ * NULL circuits are not classified as directory circuits. */
 static int
 privcount_circuit_is_dir(const circuit_t *circ)
 {
   if (!circ) {
-    /* Assume missing circuits are *not* directory circuits */
     return 0;
   }
 
@@ -5880,7 +5881,8 @@ privcount_circuit_is_dir(const circuit_t *circ)
   return 0;
 }
 
-/* Are conn or circ directory-related, and do they end at this relay? */
+/* Are conn or circ directory-related, and do they end at this relay?
+ * NULL connections or circuits are not classified as directory-related. */
 static int
 privcount_is_dir(const connection_t* conn, const circuit_t *circ)
 {
@@ -5904,12 +5906,12 @@ privcount_is_dir(const connection_t* conn, const circuit_t *circ)
 #if PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD
 /* Is conn a DNS RESOLVE, and does it end at this relay?
  * Circuits may mix DNS resolves and connects, so asking if a circuit is a
- * DNS resolve is meaningless. */
+ * DNS resolve is meaningless.
+ * NULL connections are not classified as DNS connections. */
 static int
 privcount_conn_is_dns_resolve(const connection_t* conn)
 {
   if (!conn) {
-    /* Assume missing connections are *not* DNS */
     return 0;
   }
 
@@ -5917,7 +5919,9 @@ privcount_conn_is_dns_resolve(const connection_t* conn)
 }
 #endif
 
-/* Find the circuit for orcirc or exitconn */
+/* Find the circuit for orcirc or exitconn
+ * Either orcirc or exitconn may be NULL, if they are, the other is used.
+ * If both are NULL, returns NULL. */
 static circuit_t*
 privcount_get_circuit(edge_connection_t* exitconn,
                       or_circuit_t *orcirc)
@@ -5931,7 +5935,9 @@ privcount_get_circuit(edge_connection_t* exitconn,
   }
 }
 
-/* Find the or_circuit for orcirc or exitconn */
+/* Find the or_circuit for orcirc or exitconn
+ * Either orcirc or exitconn may be NULL, if they are, the other is used.
+ * If both are NULL, or an or_circuit can not be found, returns NULL. */
 or_circuit_t*
 privcount_get_or_circuit(edge_connection_t* exitconn,
                          or_circuit_t *orcirc)
@@ -5960,20 +5966,19 @@ privcount_get_const_or_circuit(const edge_connection_t* exitconn,
                                                 (or_circuit_t *)orcirc);
 }
 
-/* Is conn an EXIT conn (or BEGINDIR conn), and does it end at this relay? */
+/* Are conn or circ Exit (or BEGINDIR), and do they end at this relay?
+ * NULL connections or circuits are not classified as Exit-related. */
 static int
 privcount_is_exit(const edge_connection_t* exitconn,
                   const or_circuit_t *orcirc)
 {
   if (!exitconn) {
-    /* Assume missing connections are *not* Exit connections */
     return 0;
   }
 
   const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
 
   if (!oc) {
-    /* Assume missing circuits are *not* OR circuits */
     return 0;
   }
 
@@ -5991,8 +5996,10 @@ privcount_is_exit(const edge_connection_t* exitconn,
 }
 
 /* Should PrivCount ignore events from this connection or circuit?
- * Directory connections and DNS resolves are considered overhead, so this
- * function is not suitabe for filtering EVENT_PRIVCOUNT_DNS_RESOLVED events.
+ * Directory connections are considered overhead.
+ * If PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD is 1, this function is not suitable
+ * for filtering EVENT_PRIVCOUNT_DNS_RESOLVED events.
+ * NULL connections or circuits are not classified as overhead.
  */
 static int
 privcount_is_overhead(const connection_t* conn, const circuit_t *circ)
@@ -6012,8 +6019,9 @@ privcount_is_overhead(const connection_t* conn, const circuit_t *circ)
   return privcount_is_dir(conn, circ);
 }
 
-/* Should PrivCount count streams and bytes from this connection or circuit?
- */
+/* Should PrivCount count streams and bytes from this connection and circuit?
+ * If orcirc is NULL, it is looked up from exitconn.
+ * If exitconn is NULL, returns 0. */
 int
 privcount_is_counted_for_bytes(const edge_connection_t* exitconn,
                                const or_circuit_t *orcirc)
@@ -6041,8 +6049,10 @@ privcount_is_counted_for_bytes(const edge_connection_t* exitconn,
   return privcount_is_exit(exitconn, orcirc);
 }
 
-/* Should PrivCount ignore cells, circuits, and connections from this circuit?
- */
+/* Should PrivCount count cells, circuits, and connections from this
+ * connection and circuit?
+ * Either circ or conn may be NULL, if they are, the other is used.
+ * If both are NULL, returns 0. */
 int
 privcount_is_counted_for_cells(const connection_t *conn,
                                const circuit_t *circ)
@@ -6071,7 +6081,7 @@ privcount_is_counted_for_cells(const connection_t *conn,
 }
 
 /* Should PrivCount ignore DNS requests from this connection or circuit?
- */
+ * If orcirc or exitconn are NULL, returns 0. */
 int
 privcount_is_counted_for_dns(const edge_connection_t* exitconn,
                              const or_circuit_t *orcirc)
@@ -6098,12 +6108,12 @@ privcount_is_counted_for_dns(const edge_connection_t* exitconn,
   return privcount_is_exit(exitconn, orcirc);
 }
 
-/* Is the remote end of chan a relay in our current consensus? */
+/* Is the remote end of chan a relay in our current consensus?
+ * If chan is NULL, returns 0. */
 static int
 privcount_is_consensus_relay(const channel_t* chan)
 {
   if (!chan) {
-    /* Assume that missing connections *aren't* a known relay */
     return 0;
   }
 
@@ -6115,12 +6125,13 @@ privcount_is_consensus_relay(const channel_t* chan)
 }
 
 /* Is the remote end of chan a client or bridge?
- * (Relays authenticate their peer IDs to us, clients and bridges do not) */
+ * (Relays authenticate their peer IDs to other relays, clients and bridges do
+ * not)
+ * If chan is NULL, returns 0. */
 static int
 privcount_is_unauthenticated_client(const channel_t *chan)
 {
   if (!chan) {
-    /* Assume that missing connections *aren't* a client */
     return 0;
   }
 
@@ -6132,7 +6143,8 @@ privcount_is_unauthenticated_client(const channel_t *chan)
   }
 }
 
-/* Is the remote end of chan a client or bridge? */
+/* Is the remote end of chan a client or bridge?
+ * If chan is NULL, returns 0. */
 static int
 privcount_is_client(const channel_t* chan)
 {
@@ -6142,6 +6154,8 @@ privcount_is_client(const channel_t* chan)
   /* Relays in the consensus should always authenticate their peer IDs with us
    */
   if (is_relay) {
+    /* TODO: make this a protocol warning: if our code is correct, it is the
+     * other side that is misbehaving */
     tor_assert_nonfatal(!is_client);
   }
 
@@ -6159,9 +6173,13 @@ privcount_add_saturating(uint64_t a, uint64_t b) {
   }
 }
 
-/* Perform a += b without overflow, and without returning a value */
+/* Perform a += b without overflow, and without returning a value
+ * total must not be NULL */
 void
 privcount_sum(uint64_t *total, uint64_t increment) {
+  if (BUG(!total)) {
+    return;
+  }
   *total = privcount_add_saturating(*total, increment);
 }
 
@@ -6194,7 +6212,8 @@ privcount_chan_addr_to_str_dup(const channel_t *chan)
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
- * See PrivCount bug 184 for details. */
+ * See PrivCount bug 184 for details.
+ * If orcirc or exitconn are NULL, the event is ignored. */
 void
 control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
                                      const or_circuit_t *orcirc)
@@ -6225,13 +6244,19 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 /* Send a PrivCount stream data transfer event triggered on exitconn and
  * orcirc with amt bytes.
  * If is_outbound is true, the data was written to a remote peer, otherwise,
- * the data was read from a remote peer. */
+ * the data was read from a remote peer.
+ * exitconn must not be NULL.
+ * If orcirc is NULL, it is looked up from exitconn. */
 void
 control_event_privcount_stream_data_xferred(const edge_connection_t *exitconn,
                                             const or_circuit_t *orcirc,
                                             uint64_t amt, int is_outbound)
 {
     if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED)) {
+        return;
+    }
+
+    if (BUG(!exitconn)) {
         return;
     }
 
@@ -6250,11 +6275,16 @@ control_event_privcount_stream_data_xferred(const edge_connection_t *exitconn,
             (long)now.tv_sec, (long)now.tv_usec);
 }
 
-/* Send a PrivCount stream end event triggered on exitconn. */
+/* Send a PrivCount stream end event triggered on exitconn.
+ * exitconn must not be NULL. */
 void
 control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 {
     if(!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED)) {
+        return;
+    }
+
+    if (BUG(!exitconn)) {
         return;
     }
 
@@ -6286,7 +6316,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 
 /* Send a PrivCount circuit end event triggered on orcirc.
  * Sets the privcount_event_emitted flag in orcirc to ensure that each
- * circuit only emits one event. */
+ * circuit only emits one event.
+ * orcirc must not be NULL. */
 void
 control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 {
@@ -6294,9 +6325,9 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
         return;
     }
 
-    /* Ignore events with missing data, or events that have already been sent
+    /* Ignore events that have already been sent
      */
-    if (!orcirc || orcirc->privcount_event_emitted) {
+    if (BUG(!orcirc) || orcirc->privcount_event_emitted) {
         return;
     }
 
@@ -6338,7 +6369,8 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
     tor_free(n_addr);
 }
 
-/* Send a PrivCount connection end event triggered on orconn. */
+/* Send a PrivCount connection end event triggered on orconn.
+ * orconn must not be NULL. */
 void
 control_event_privcount_connection_ended(const or_connection_t *orconn)
 {
@@ -6346,8 +6378,7 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
         return;
     }
 
-    /* Ignore events with missing data */
-    if (!orconn) {
+    if (BUG(!orconn)) {
         return;
     }
 
