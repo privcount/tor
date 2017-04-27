@@ -3406,7 +3406,8 @@ typedef struct or_circuit_t {
   uint32_t max_middle_cells;
 
   /* Excludes cells and bytes that privcount considers overhead.
-   * Use privcount_sum() when modifying these values to avoid overflow. */
+   * Use privcount_add_saturating() when modifying these values to avoid
+   * overflow. */
   uint64_t privcount_n_cells_in;
   uint64_t privcount_n_cells_out;
   uint64_t privcount_n_read;

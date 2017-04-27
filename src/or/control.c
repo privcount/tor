@@ -5995,75 +5995,18 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
   return TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
 }
 
-/* Should PrivCount ignore events from this connection or circuit?
- * Directory connections are considered overhead.
- * If PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD is 1, this function is not suitable
- * for filtering EVENT_PRIVCOUNT_DNS_RESOLVED events.
- * NULL connections or circuits are not classified as overhead.
+/* Should PrivCount send events and update byte and cell counts from this
+ * connection and circuit?
+ * Returns 0 for directory connections.
+ * If PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD is 1, returns 0 for DNS resolves.
+ * Either circ or conn may be NULL, if they are, the other is checked.
+ * If both are NULL, returns 0.
  */
 static int
-privcount_data_is_overhead(const connection_t* conn, const circuit_t *circ)
+privcount_data_is_used(const connection_t* conn, const circuit_t *circ)
 {
-#if PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD
-  if (privcount_connection_is_dns_resolve(conn)) {
-    return 1;
-  }
-#endif
-
-  /* if the circuit started here, this is our own stream and we can ignore it
-   */
-  if (circ && CIRCUIT_IS_ORIGIN(circ)) {
-    return 1;
-  }
-
-  return privcount_data_is_dir(conn, circ);
-}
-
-/* Should PrivCount count streams and bytes from this connection and circuit?
- * If orcirc is NULL, it is looked up from exitconn.
- * If exitconn is NULL, returns 0. */
-int
-privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
-                                         const or_circuit_t *orcirc)
-{
-  /* Ignore events that are disabled */
+  /* Ignore events and counters when PrivCount is disabled */
   if (!get_options()->EnablePrivCount) {
-    return 0;
-  }
-
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED) &&
-      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED)) {
-    return 0;
-  }
-
-  /* Ignore events with missing connections */
-  if (!exitconn) {
-    return 0;
-  }
-
-  if (privcount_data_is_overhead(TO_CONN(exitconn), TO_CIRCUIT(orcirc))) {
-    return 0;
-  }
-
-  /* Bytes are only counted at exit connections */
-  return privcount_data_is_exit(exitconn, orcirc);
-}
-
-/* Should PrivCount count cells, circuits, and connections from this
- * connection and circuit?
- * Either circ or conn may be NULL, if they are, the other is used.
- * If both are NULL, returns 0. */
-int
-privcount_data_is_used_for_cell_counters(const connection_t *conn,
-                                         const circuit_t *circ)
-{
-  /* Ignore events that are disabled */
-  if (!get_options()->EnablePrivCount) {
-    return 0;
-  }
-
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED) &&
-      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
     return 0;
   }
 
@@ -6072,40 +6015,100 @@ privcount_data_is_used_for_cell_counters(const connection_t *conn,
     return 0;
   }
 
-  if (privcount_data_is_overhead(conn, circ)) {
+  /* if the circuit started here, this is our own stream and we can ignore it
+   */
+  if (circ && CIRCUIT_IS_ORIGIN(circ)) {
     return 0;
   }
 
-  /* Cells get counted at non-exit connections as well as exit connections */
+  if (privcount_data_is_dir(conn, circ)) {
+    return 0;
+  }
+
   return 1;
 }
 
-/* Should PrivCount ignore DNS requests from this connection or circuit?
- * If orcirc or exitconn are NULL, returns 0. */
+/* Should PrivCount send stream transfer and stream end events for this
+ * connection and circuit?
+ * If orcirc is NULL, it is looked up from exitconn.
+ * If exitconn is NULL, orcirc is checked. */
 int
-privcount_data_is_used_for_dns_counters(const edge_connection_t* exitconn,
-                                        const or_circuit_t *orcirc)
+privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
+                                         const or_circuit_t *orcirc)
 {
-  /* Ignore events that are disabled */
-  if (!get_options()->EnablePrivCount) {
+  const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+
+  if (!privcount_data_is_used(TO_CONN(exitconn), TO_CIRCUIT(oc))) {
     return 0;
   }
 
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_DNS_RESOLVED)) {
+  /* Bytes are only counted at exit connections */
+  return privcount_data_is_exit(exitconn, oc);
+}
+
+/* Should PrivCount count bytes for this connection and circuit?
+ * See privcount_data_is_used_for_stream_events for argument descriptions. */
+int
+privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
+                                         const or_circuit_t *orcirc)
+{
+  /* These events use byte counts via edge_connection_t's privcount_n_read or
+   * privcount_n_written. */
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return 0;
   }
 
-  /* Ignore events with incomplete data */
-  if (!exitconn || !orcirc) {
+  /* Byte counts use the same checks as stream events, even though they are
+   * reported by the stream end and circuit end events. */
+  return privcount_data_is_used_for_stream_events(exitconn, orcirc);
+}
+
+/* Should PrivCount send circuit events for this circuit?
+ * If circ is NULL, returns 0. */
+int
+privcount_data_is_used_for_circuit_events(const circuit_t *circ)
+{
+  /* Circuits have a next and previous channel, so unlike stream events,
+   * we don't look up connection(s) from the circuit. */
+  return privcount_data_is_used(NULL, circ);
+}
+
+/* Should PrivCount count cells for this circuit?
+ * See privcount_data_is_used_for_circuit_events for argument descriptions. */
+int
+privcount_data_is_used_for_cell_counters(const circuit_t *circ)
+{
+  /* These events use cell counts via edge_connection_t's privcount_n_cells_in
+   * or privcount_n_cells_out. */
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return 0;
   }
 
+  /* Cell counters are only used in circuit events, so the checks are the
+   * same. */
+  return privcount_data_is_used_for_circuit_events(circ);
+}
+
+/* Should PrivCount send connection events for this connection?
+ * If conn is NULL, return 0. */
+int
+privcount_data_is_used_for_connection_events(const connection_t *conn)
+{
+  return privcount_data_is_used(conn, NULL);
+}
+
+/* Should PrivCount send DNS events from this connection or circuit?
+ * See privcount_data_is_used for argument descriptions. */
+int
+privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
+                                      const or_circuit_t *orcirc)
+{
   /* DNS connections are never directory connections */
   int is_dir = privcount_data_is_dir(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
   tor_assert_nonfatal(!is_dir);
 
-  /* DNS is only available at exit connections */
-  return privcount_data_is_exit(exitconn, orcirc);
+  return privcount_data_is_used(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
 }
 
 /* Is the remote end of chan a relay in our current consensus?
@@ -6164,23 +6167,15 @@ privcount_is_client(const channel_t* chan)
 }
 
 /* Perform a 64-bit saturating add of a and b */
-static uint64_t
+uint64_t
 privcount_add_saturating(uint64_t a, uint64_t b) {
+  /* Check before performing the addition to avoid overflow, even though it
+   * is defined as wrapping on unsigned integers. */
   if (PREDICT_LIKELY(UINT64_MAX - a > b)) {
     return a + b;
   } else {
     return UINT64_MAX;
   }
-}
-
-/* Perform a += b without overflow, and without returning a value
- * total must not be NULL */
-void
-privcount_sum(uint64_t *total, uint64_t increment) {
-  if (BUG(!total)) {
-    return;
-  }
-  *total = privcount_add_saturating(*total, increment);
 }
 
 #define NO_CHANNEL_ADDRESS "0.0.0.0"
@@ -6213,6 +6208,7 @@ privcount_chan_addr_to_str_dup(const channel_t *chan)
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
  * See PrivCount bug 184 for details.
+ * If PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD is 1, no DNS resolve events are sent.
  * If orcirc or exitconn are NULL, the event is ignored. */
 void
 control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
@@ -6223,7 +6219,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
     }
 
     /* Filter out directory data (at the directory) and non-exit connections */
-    if (privcount_data_is_used_for_dns_counters(exitconn, orcirc)) {
+    if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
         return;
     }
 
@@ -6260,6 +6256,14 @@ control_event_privcount_stream_data_xferred(const edge_connection_t *exitconn,
         return;
     }
 
+    /* Only send stream events for connections from exits to legitimate
+     * client-bound destinations.
+     * This means we won't get hidden-service requests, directory requests, or
+     * any non-exit connections */
+    if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+        return;
+    }
+
     /* Get the time as early as possible, but after we're sure we want it */
     struct timeval now;
     tor_gettimeofday(&now);
@@ -6291,10 +6295,11 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     const or_circuit_t* orcirc = privcount_get_const_or_circuit(exitconn,
                                                                 NULL);
 
-    /* only collect stream info from exits to legitimate client-bound destinations.
-     * this means we won't get hidden-service requests, directory requests, or
+    /* Only send stream events for connections from exits to legitimate
+     * client-bound destinations.
+     * This means we won't get hidden-service requests, directory requests, or
      * any non-exit connections */
-    if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
+    if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
       return;
     }
 
@@ -6314,7 +6319,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
             0, 0);
 }
 
-/* Send a PrivCount circuit end event triggered on orcirc.
+/* Send a PrivCount circuit end event triggered on orcirc, which may be an
+ * entry, exit, or middle connection.
  * Sets the privcount_event_emitted flag in orcirc to ensure that each
  * circuit only emits one event.
  * orcirc must not be NULL. */
@@ -6333,8 +6339,8 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 
     orcirc->privcount_event_emitted = 1;
 
-    /* Filter out circuit overhead (directory circuits at directories) */
-    if (privcount_data_is_used_for_cell_counters(NULL, TO_CIRCUIT(orcirc))) {
+    /* Filter out circuit overhead (directory circuits at directories). */
+    if (!privcount_data_is_used_for_circuit_events(TO_CIRCUIT(orcirc))) {
       return;
     }
 
@@ -6382,10 +6388,11 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
         return;
     }
 
-    /* Filter out connection overhead (directory connections at directories) */
-    if (privcount_data_is_used_for_cell_counters(TO_CONN(orconn), NULL)) {
-      return;
+    /* Filter out connection overhead (directory circuits at directories). */
+    if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
+        return;
     }
+
 
     /* Get the time as early as possible, but after we're sure we want it */
     struct timeval now;
