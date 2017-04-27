@@ -150,11 +150,11 @@ void control_event_hs_descriptor_content(const char *onion_address,
 
 or_circuit_t* privcount_get_or_circuit(edge_connection_t* exitconn,
                                        or_circuit_t *orcirc);
-int privcount_is_counted_for_bytes(const edge_connection_t* exitconn,
+int privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
                                    const or_circuit_t *orcirc);
-int privcount_is_counted_for_cells(const connection_t *conn,
+int privcount_data_is_used_for_cell_counters(const connection_t *conn,
                                    const circuit_t *circ);
-int privcount_is_counted_for_dns(const edge_connection_t* exitconn,
+int privcount_data_is_used_for_dns_counters(const edge_connection_t* exitconn,
                                  const or_circuit_t *orcirc);
 void privcount_sum(uint64_t *total, uint64_t increment);
 
