@@ -5884,7 +5884,7 @@ privcount_circuit_is_dir(const circuit_t *circ)
 /* Are conn or circ directory-related, and do they end at this relay?
  * NULL connections or circuits are not classified as directory-related. */
 static int
-privcount_is_dir(const connection_t* conn, const circuit_t *circ)
+privcount_data_is_dir(const connection_t* conn, const circuit_t *circ)
 {
   int conn_is_dir = privcount_connection_is_dir(conn);
   int circ_is_dir = privcount_circuit_is_dir(circ);
@@ -5909,7 +5909,7 @@ privcount_is_dir(const connection_t* conn, const circuit_t *circ)
  * DNS resolve is meaningless.
  * NULL connections are not classified as DNS connections. */
 static int
-privcount_conn_is_dns_resolve(const connection_t* conn)
+privcount_connection_is_dns_resolve(const connection_t* conn)
 {
   if (!conn) {
     return 0;
@@ -5969,8 +5969,8 @@ privcount_get_const_or_circuit(const edge_connection_t* exitconn,
 /* Are conn or circ Exit (or BEGINDIR), and do they end at this relay?
  * NULL connections or circuits are not classified as Exit-related. */
 static int
-privcount_is_exit(const edge_connection_t* exitconn,
-                  const or_circuit_t *orcirc)
+privcount_data_is_exit(const edge_connection_t* exitconn,
+                       const or_circuit_t *orcirc)
 {
   if (!exitconn) {
     return 0;
@@ -6002,10 +6002,10 @@ privcount_is_exit(const edge_connection_t* exitconn,
  * NULL connections or circuits are not classified as overhead.
  */
 static int
-privcount_is_overhead(const connection_t* conn, const circuit_t *circ)
+privcount_data_is_overhead(const connection_t* conn, const circuit_t *circ)
 {
 #if PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD
-  if (privcount_conn_is_dns_resolve(conn)) {
+  if (privcount_connection_is_dns_resolve(conn)) {
     return 1;
   }
 #endif
@@ -6016,15 +6016,15 @@ privcount_is_overhead(const connection_t* conn, const circuit_t *circ)
     return 1;
   }
 
-  return privcount_is_dir(conn, circ);
+  return privcount_data_is_dir(conn, circ);
 }
 
 /* Should PrivCount count streams and bytes from this connection and circuit?
  * If orcirc is NULL, it is looked up from exitconn.
  * If exitconn is NULL, returns 0. */
 int
-privcount_is_counted_for_bytes(const edge_connection_t* exitconn,
-                               const or_circuit_t *orcirc)
+privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
+                                         const or_circuit_t *orcirc)
 {
   /* Ignore events that are disabled */
   if (!get_options()->EnablePrivCount) {
@@ -6041,12 +6041,12 @@ privcount_is_counted_for_bytes(const edge_connection_t* exitconn,
     return 0;
   }
 
-  if (privcount_is_overhead(TO_CONN(exitconn), TO_CIRCUIT(orcirc))) {
+  if (privcount_data_is_overhead(TO_CONN(exitconn), TO_CIRCUIT(orcirc))) {
     return 0;
   }
 
   /* Bytes are only counted at exit connections */
-  return privcount_is_exit(exitconn, orcirc);
+  return privcount_data_is_exit(exitconn, orcirc);
 }
 
 /* Should PrivCount count cells, circuits, and connections from this
@@ -6054,8 +6054,8 @@ privcount_is_counted_for_bytes(const edge_connection_t* exitconn,
  * Either circ or conn may be NULL, if they are, the other is used.
  * If both are NULL, returns 0. */
 int
-privcount_is_counted_for_cells(const connection_t *conn,
-                               const circuit_t *circ)
+privcount_data_is_used_for_cell_counters(const connection_t *conn,
+                                         const circuit_t *circ)
 {
   /* Ignore events that are disabled */
   if (!get_options()->EnablePrivCount) {
@@ -6072,7 +6072,7 @@ privcount_is_counted_for_cells(const connection_t *conn,
     return 0;
   }
 
-  if (privcount_is_overhead(conn, circ)) {
+  if (privcount_data_is_overhead(conn, circ)) {
     return 0;
   }
 
@@ -6083,8 +6083,8 @@ privcount_is_counted_for_cells(const connection_t *conn,
 /* Should PrivCount ignore DNS requests from this connection or circuit?
  * If orcirc or exitconn are NULL, returns 0. */
 int
-privcount_is_counted_for_dns(const edge_connection_t* exitconn,
-                             const or_circuit_t *orcirc)
+privcount_data_is_used_for_dns_counters(const edge_connection_t* exitconn,
+                                        const or_circuit_t *orcirc)
 {
   /* Ignore events that are disabled */
   if (!get_options()->EnablePrivCount) {
@@ -6101,11 +6101,11 @@ privcount_is_counted_for_dns(const edge_connection_t* exitconn,
   }
 
   /* DNS connections are never directory connections */
-  int is_dir = privcount_is_dir(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
+  int is_dir = privcount_data_is_dir(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
   tor_assert_nonfatal(!is_dir);
 
   /* DNS is only available at exit connections */
-  return privcount_is_exit(exitconn, orcirc);
+  return privcount_data_is_exit(exitconn, orcirc);
 }
 
 /* Is the remote end of chan a relay in our current consensus?
@@ -6223,7 +6223,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
     }
 
     /* Filter out directory data (at the directory) and non-exit connections */
-    if (privcount_is_counted_for_dns(exitconn, orcirc)) {
+    if (privcount_data_is_used_for_dns_counters(exitconn, orcirc)) {
         return;
     }
 
@@ -6294,7 +6294,7 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     /* only collect stream info from exits to legitimate client-bound destinations.
      * this means we won't get hidden-service requests, directory requests, or
      * any non-exit connections */
-    if (privcount_is_counted_for_bytes(exitconn, orcirc)) {
+    if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
       return;
     }
 
@@ -6334,7 +6334,7 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
     orcirc->privcount_event_emitted = 1;
 
     /* Filter out circuit overhead (directory circuits at directories) */
-    if (privcount_is_counted_for_cells(NULL, TO_CIRCUIT(orcirc))) {
+    if (privcount_data_is_used_for_cell_counters(NULL, TO_CIRCUIT(orcirc))) {
       return;
     }
 
@@ -6383,7 +6383,7 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
     }
 
     /* Filter out connection overhead (directory connections at directories) */
-    if (privcount_is_counted_for_cells(TO_CONN(orconn), NULL)) {
+    if (privcount_data_is_used_for_cell_counters(TO_CONN(orconn), NULL)) {
       return;
     }
 

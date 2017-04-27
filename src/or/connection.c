@@ -3669,7 +3669,7 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
       or_circuit_t* orcirc = privcount_get_or_circuit(exitconn, NULL);
 
       /* Filter out directory data (at the directory) */
-      if (privcount_is_counted_for_bytes(exitconn, orcirc)) {
+      if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
         privcount_sum(&exitconn->privcount_n_read, n_read);
         privcount_sum(&orcirc->privcount_n_read, n_read);
         control_event_privcount_stream_data_xferred(exitconn, orcirc,
@@ -3973,7 +3973,7 @@ connection_handle_write_impl(connection_t *conn, int force)
     or_circuit_t* orcirc = privcount_get_or_circuit(exitconn, NULL);
 
     /* Filter out directory data (at the directory) */
-    if (privcount_is_counted_for_bytes(exitconn, orcirc)) {
+    if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
       privcount_sum(&exitconn->privcount_n_written, n_written);
       privcount_sum(&orcirc->privcount_n_written, n_written);
       control_event_privcount_stream_data_xferred(exitconn, orcirc,
