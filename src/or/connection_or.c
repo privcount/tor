@@ -1525,13 +1525,6 @@ connection_or_check_valid_tls_handshake(or_connection_t *conn,
              safe_address, conn->base_.port);
     return -1;
   } else if (!has_cert) {
-    /* If there's no channel, something is very wrong */
-    if (BUG(!conn->chan))
-      return -1;
-    /* If the client never provided a certificate, it's a tor client or bridge
-     * relay, and we must not use it for EXTEND requests (nor could we, as
-     * there is no peer certiticate) */
-    channel_mark_client(TLS_CHAN_TO_BASE(conn->chan));
     log_debug(LD_HANDSHAKE,"Got incoming connection with no certificate. "
               "That's ok.");
   }
