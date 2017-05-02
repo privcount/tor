@@ -344,8 +344,14 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     int len;
     created_cell_t created_cell;
 
-    /* Make sure we never try to use the OR connection on which we
-     * received this cell to satisfy an EXTEND request,  */
+    /* If the client used CREATE_FAST, it's probably a tor client or bridge
+     * relay, and we must not use it for EXTEND requests (in most cases, we
+     * won't have an authenticated peer ID for the extend).
+     * Public relays on 0.2.9 and later will use CREATE_FAST if they have no
+     * ntor onion key for this relay, but that should be a rare occurrence.
+     * Clients on 0.3.1 and later avoid using CREATE_FAST as much as they can,
+     * even during bootstrap, so the CREATE_FAST check is most accurate for
+     * earlier tor client versions. */
     channel_mark_client(chan);
 
     memset(&created_cell, 0, sizeof(created_cell));
@@ -574,9 +580,7 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
   if (!CIRCUIT_IS_ORIGIN(circ) &&
       chan == TO_OR_CIRCUIT(circ)->p_chan &&
       cell->circ_id == TO_OR_CIRCUIT(circ)->p_circ_id) {
-    if(!CIRCUIT_IS_ORIGIN(circ)) {
-        control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
-    }
+    control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
     /* the destroy came from behind */
     circuit_set_p_circid_chan(TO_OR_CIRCUIT(circ), 0, NULL);
     circuit_mark_for_close(circ, reason|END_CIRC_REASON_FLAG_REMOTE);

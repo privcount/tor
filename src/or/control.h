@@ -148,11 +148,33 @@ void control_event_hs_descriptor_content(const char *onion_address,
                                          const char *hsdir_fp,
                                          const char *content);
 
-void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc);
-void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int is_outbound);
-void control_event_privcount_stream_ended(edge_connection_t *conn);
+or_circuit_t* privcount_get_or_circuit(edge_connection_t* exitconn,
+                                       or_circuit_t *orcirc);
+
+int privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
+                                             const or_circuit_t *orcirc);
+int privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
+                                             const or_circuit_t *orcirc);
+
+int privcount_data_is_used_for_circuit_events(const circuit_t *circ);
+int privcount_data_is_used_for_cell_counters(const circuit_t *circ);
+
+int privcount_data_is_used_for_connection_events(const connection_t *conn);
+
+int privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
+                                          const or_circuit_t *orcirc);
+
+uint64_t privcount_add_saturating(uint64_t a, uint64_t b);
+
+void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
+                                          const or_circuit_t *orcirc);
+void control_event_privcount_stream_data_xferred(
+                                            const edge_connection_t *exitconn,
+                                            const or_circuit_t *orcirc,
+                                            uint64_t amt, int is_outbound);
+void control_event_privcount_stream_ended(const edge_connection_t *exitconn);
 void control_event_privcount_circuit_ended(or_circuit_t *orcirc);
-void control_event_privcount_connection_ended(or_connection_t *orconn);
+void control_event_privcount_connection_ended(const or_connection_t *orconn);
 
 void control_free_all(void);
 

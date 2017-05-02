@@ -5794,88 +5794,494 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
   return 0;
 }
 
-void control_event_privcount_dns_resolved(edge_connection_t *exitconn, or_circuit_t *oncirc) {
-    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_DNS_RESOLVED)) {
+/* Is conn itself a directory server connection?
+ * NULL connections are not classified as directory connections. */
+static int
+privcount_connection_is_dir_server_conn(const connection_t *conn) {
+  /* DirPort connections, or the directory side of linked BEGINDIR connections
+   */
+  return conn && conn->type == CONN_TYPE_DIR && DIR_CONN_IS_SERVER(conn);
+}
+
+/* Is conn a directory connection or BEGINDIR connection that ends at this
+ * relay?
+ * NULL connections are not classified as directory connections. */
+static int
+privcount_connection_is_dir(const connection_t *conn)
+{
+  if (!conn) {
+    return 0;
+  }
+
+  if (privcount_connection_is_dir_server_conn(conn)) {
+    /* DirPort connections */
+    return 1;
+  }
+
+  if (conn->type == CONN_TYPE_EXIT) {
+    /* Some EXIT connections are BEGINDIR, others Exit to the Internet */
+    if (conn->linked) {
+      /* All BEGINDIR connections must have been linked, and only directory
+       * connections use connection_ap_make_link() */
+      if (conn->linked_conn) {
+        tor_assert_nonfatal(
+                  privcount_connection_is_dir_server_conn(conn->linked_conn));
+      }
+      /* All BEGINDIR connections are CONNECT (rather than RESOLVE) */
+      tor_assert_nonfatal(conn->purpose == EXIT_PURPOSE_CONNECT);
+      return 1;
+    } else {
+      /* If it wasn't linked, it wasn't BEGINDIR */
+      return 0;
+    }
+  }
+
+  /* If it wasn't EXIT or DIR, it wasn't a directory connection */
+  return 0;
+}
+
+/* Is circ a directory circuit that ends at this relay?
+ * NULL circuits are not classified as directory circuits. */
+static int
+privcount_circuit_is_dir(const circuit_t *circ)
+{
+  if (!circ) {
+    return 0;
+  }
+
+  if (circ->dirreq_id != 0) {
+    /* BEGINDIR connections all have dirreq_id set when processing
+     * RELAY_COMMAND_BEGIN_DIR */
+    return 1;
+  }
+
+  /* If it doesn't have dirreq_id set, it's not a directory circuit */
+  return 0;
+}
+
+/* Are conn or circ directory-related, and do they end at this relay?
+ * NULL connections or circuits are not classified as directory-related. */
+static int
+privcount_data_is_dir(const connection_t* conn, const circuit_t *circ)
+{
+  int conn_is_dir = privcount_connection_is_dir(conn);
+  int circ_is_dir = privcount_circuit_is_dir(circ);
+
+  /* Make sure we're getting consistent results */
+  if (conn && circ) {
+    tor_assert_nonfatal(conn_is_dir == circ_is_dir);
+  }
+
+  return conn_is_dir || circ_is_dir;
+}
+
+/* DNS resolves are a normal part of the Tor protocol for DNSPort/SOCKS4
+ * clients, so DNS is not considered overhead by default */
+#ifndef PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD
+#define PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD 0
+#endif
+
+#if PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD
+/* Is conn a DNS RESOLVE, and does it end at this relay?
+ * Circuits may mix DNS resolves and connects, so asking if a circuit is a
+ * DNS resolve is meaningless.
+ * NULL connections are not classified as DNS connections. */
+static int
+privcount_connection_is_dns_resolve(const connection_t* conn)
+{
+  if (!conn) {
+    return 0;
+  }
+
+  return conn->type == CONN_TYPE_EXIT && conn->purpose == EXIT_PURPOSE_RESOLVE;
+}
+#endif
+
+/* Find the circuit for orcirc or exitconn
+ * Either orcirc or exitconn may be NULL, if they are, the other is used.
+ * If both are NULL, returns NULL. */
+static circuit_t*
+privcount_get_circuit(edge_connection_t* exitconn,
+                      or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return TO_CIRCUIT(orcirc);
+  } else if (exitconn) {
+    return circuit_get_by_edge_conn(exitconn);
+  } else {
+    return NULL;
+  }
+}
+
+/* Find the or_circuit for orcirc or exitconn
+ * Either orcirc or exitconn may be NULL, if they are, the other is used.
+ * If both are NULL, or an or_circuit can not be found, returns NULL. */
+or_circuit_t*
+privcount_get_or_circuit(edge_connection_t* exitconn,
+                         or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    tor_assert_nonfatal(CIRCUIT_IS_ORCIRC(orcirc));
+    return orcirc;
+  } else {
+    circuit_t* circ = privcount_get_circuit(exitconn, orcirc);
+    if (circ && CIRCUIT_IS_ORCIRC(circ)) {
+      return TO_OR_CIRCUIT(circ);
+    } else {
+      return NULL;
+    }
+  }
+}
+
+/* Like privcount_get_or_circuit, but with casts that tell the compiler we're
+ * not actually modifying anything */
+static const or_circuit_t*
+privcount_get_const_or_circuit(const edge_connection_t* exitconn,
+                               const or_circuit_t *orcirc)
+{
+  return (const or_circuit_t *)privcount_get_or_circuit(
+                                                (edge_connection_t *)exitconn,
+                                                (or_circuit_t *)orcirc);
+}
+
+/* Are conn or circ Exit (or BEGINDIR), and do they end at this relay?
+ * NULL connections or circuits are not classified as Exit-related. */
+static int
+privcount_data_is_exit(const edge_connection_t* exitconn,
+                       const or_circuit_t *orcirc)
+{
+  if (!exitconn) {
+    return 0;
+  }
+
+  const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+
+  if (!oc) {
+    return 0;
+  }
+
+  /* if the circuit started here, this is our own stream and we can ignore it
+   */
+  if (CIRCUIT_IS_ORIGIN(TO_CIRCUIT(oc))) {
+    return 0;
+  }
+
+  if (!oc->p_chan) {
+    return 0;
+  }
+
+  return TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
+}
+
+/* Should PrivCount send events and update byte and cell counts from this
+ * connection and circuit?
+ * Returns 0 for directory connections.
+ * If PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD is 1, returns 0 for DNS resolves.
+ * Either circ or conn may be NULL, if they are, the other is checked.
+ * If both are NULL, returns 0.
+ */
+static int
+privcount_data_is_used(const connection_t* conn, const circuit_t *circ)
+{
+  /* Ignore events and counters when PrivCount is disabled */
+  if (!get_options()->EnablePrivCount) {
+    return 0;
+  }
+
+  /* Ignore events which are missing both connection and circuit */
+  if (!conn && !circ) {
+    return 0;
+  }
+
+  /* if the circuit started here, this is our own stream and we can ignore it
+   */
+  if (circ && CIRCUIT_IS_ORIGIN(circ)) {
+    return 0;
+  }
+
+  if (privcount_data_is_dir(conn, circ)) {
+    return 0;
+  }
+
+  return 1;
+}
+
+/* Should PrivCount send stream transfer and stream end events for this
+ * connection and circuit?
+ * If orcirc is NULL, it is looked up from exitconn.
+ * If exitconn is NULL, orcirc is checked. */
+int
+privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
+                                         const or_circuit_t *orcirc)
+{
+  const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+
+  if (!privcount_data_is_used(TO_CONN(exitconn), TO_CIRCUIT(oc))) {
+    return 0;
+  }
+
+  /* Bytes are only counted at exit connections */
+  return privcount_data_is_exit(exitconn, oc);
+}
+
+/* Should PrivCount count bytes for this connection and circuit?
+ * See privcount_data_is_used_for_stream_events for argument descriptions. */
+int
+privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
+                                         const or_circuit_t *orcirc)
+{
+  /* These events use byte counts via edge_connection_t's privcount_n_read or
+   * privcount_n_written. */
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+    return 0;
+  }
+
+  /* Byte counts use the same checks as stream events, even though they are
+   * reported by the stream end and circuit end events. */
+  return privcount_data_is_used_for_stream_events(exitconn, orcirc);
+}
+
+/* Should PrivCount send circuit events for this circuit?
+ * If circ is NULL, returns 0. */
+int
+privcount_data_is_used_for_circuit_events(const circuit_t *circ)
+{
+  /* Circuits have a next and previous channel, so unlike stream events,
+   * we don't look up connection(s) from the circuit. */
+  return privcount_data_is_used(NULL, circ);
+}
+
+/* Should PrivCount count cells for this circuit?
+ * See privcount_data_is_used_for_circuit_events for argument descriptions. */
+int
+privcount_data_is_used_for_cell_counters(const circuit_t *circ)
+{
+  /* These events use cell counts via edge_connection_t's privcount_n_cells_in
+   * or privcount_n_cells_out. */
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+    return 0;
+  }
+
+  /* Cell counters are only used in circuit events, so the checks are the
+   * same. */
+  return privcount_data_is_used_for_circuit_events(circ);
+}
+
+/* Should PrivCount send connection events for this connection?
+ * If conn is NULL, return 0. */
+int
+privcount_data_is_used_for_connection_events(const connection_t *conn)
+{
+  return privcount_data_is_used(conn, NULL);
+}
+
+/* Should PrivCount send DNS events from this connection or circuit?
+ * See privcount_data_is_used for argument descriptions. */
+int
+privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
+                                      const or_circuit_t *orcirc)
+{
+  /* DNS connections are never directory connections */
+  int is_dir = privcount_data_is_dir(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
+  tor_assert_nonfatal(!is_dir);
+
+  return privcount_data_is_used(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
+}
+
+/* Is the remote end of chan a relay in our current consensus?
+ * If chan is NULL, returns 0. */
+static int
+privcount_is_consensus_relay(const channel_t* chan)
+{
+  if (!chan) {
+    return 0;
+  }
+
+  if (connection_or_digest_is_known_relay(chan->identity_digest)) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+/* Is the remote end of chan a client or bridge?
+ * (Relays authenticate their peer IDs to other relays, clients and bridges do
+ * not)
+ * If chan is NULL, returns 0. */
+static int
+privcount_is_unauthenticated_client(const channel_t *chan)
+{
+  if (!chan) {
+    return 0;
+  }
+
+  /* channel_is_client doesn't actually modify chan */
+  if (channel_is_client((channel_t *)chan)) {
+    return 1;
+  } else {
+    return 0;
+  }
+}
+
+/* Is the remote end of chan a client or bridge?
+ * If chan is NULL, returns 0. */
+static int
+privcount_is_client(const channel_t* chan)
+{
+  int is_relay = privcount_is_consensus_relay(chan);
+  int is_client = privcount_is_unauthenticated_client(chan);
+
+  /* Relays in the consensus should always authenticate their peer IDs with us
+   */
+  if (is_relay) {
+    /* TODO: make this a protocol warning: if our code is correct, it is the
+     * other side that is misbehaving */
+    tor_assert_nonfatal(!is_client);
+  }
+
+  /* is_client is more reliable, but only with the fix for Tor bug 21406 */
+  return is_client && !is_relay;
+}
+
+/* Perform a 64-bit saturating add of a and b */
+uint64_t
+privcount_add_saturating(uint64_t a, uint64_t b) {
+  /* Check before performing the addition to avoid overflow, even though it
+   * is defined as wrapping on unsigned integers. */
+  if (PREDICT_LIKELY(UINT64_MAX - a > b)) {
+    return a + b;
+  } else {
+    return UINT64_MAX;
+  }
+}
+
+#define NO_CHANNEL_ADDRESS "0.0.0.0"
+#define NO_CONNECTION_ADDRESS "0.0.0.0"
+
+/* Return a newly allocated string containing the remote address of chan,
+ * or a placeholder if chan is NULL or has no connection.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_chan_addr_to_str_dup(const channel_t *chan)
+{
+  /* channel_get_actual_remote_address / channel_tls_get_remote_descr_method
+   * can't be used here, because it uses a static buffer */
+  if (chan) {
+    tor_addr_t addr;
+    int has_addr;
+    /* channel_tls_get_remote_addr_method does not actually modify chan */
+    has_addr = channel_get_addr_if_possible((channel_t *)chan, &addr);
+    if (has_addr) {
+      return tor_addr_to_str_dup(&addr);
+    } else {
+      return tor_strdup(NO_CONNECTION_ADDRESS);
+    }
+  } else {
+    return tor_strdup(NO_CHANNEL_ADDRESS);
+  }
+}
+
+/* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
+ * This event includes failed resolves, but excludes immediate results, such
+ * as trivial IP address resolves and failed malformed resolves.
+ * See PrivCount bug 184 for details.
+ * If PRIVCOUNT_DNS_RESOLVE_IS_OVERHEAD is 1, no DNS resolve events are sent.
+ * If orcirc or exitconn are NULL, the event is ignored. */
+void
+control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
+                                     const or_circuit_t *orcirc)
+{
+    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_DNS_RESOLVED)) {
+      return;
+    }
+
+    /* Filter out directory data (at the directory) and non-exit connections */
+    if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
         return;
     }
 
-    if(!oncirc || !oncirc->p_chan || !exitconn) {
-        return;
-    }
+    /* There's no time here. We should fix that if we ever use this event */
+#if 0
+    /* Get the time as early as possible, but after we're sure we want it */
+    struct timeval now;
+    tor_gettimeofday(&now);
+#endif
 
     send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
                        "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %s\r\n",
-                       oncirc->p_chan->global_identifier,
-                       oncirc->p_circ_id,
+                       orcirc->p_chan->global_identifier,
+                       orcirc->p_circ_id,
                        exitconn->base_.address);
 }
 
-void control_event_privcount_stream_data_xferred(edge_connection_t *conn, uint64_t amt, int is_outbound) {
-    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED)) {
+/* Send a PrivCount stream data transfer event triggered on exitconn and
+ * orcirc with amt bytes.
+ * If is_outbound is true, the data was written to a remote peer, otherwise,
+ * the data was read from a remote peer.
+ * exitconn must not be NULL.
+ * If orcirc is NULL, it is looked up from exitconn. */
+void
+control_event_privcount_stream_data_xferred(const edge_connection_t *exitconn,
+                                            const or_circuit_t *orcirc,
+                                            uint64_t amt, int is_outbound)
+{
+    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED)) {
         return;
     }
 
-    if(!conn || conn->base_.type != CONN_TYPE_EXIT) {
+    if (BUG(!exitconn)) {
         return;
     }
 
-    /* if the circuit started here, this is our own stream and we can ignore it */
-    circuit_t* circ = circuit_get_by_edge_conn(conn);
-    or_circuit_t *orcirc = NULL;
-    if(circ) {
-        if(CIRCUIT_IS_ORIGIN(circ)) {
-            return;
-        }
-        /* now we know its an or_circuit_t */
-        orcirc = TO_OR_CIRCUIT(circ);
+    /* Only send stream events for connections from exits to legitimate
+     * client-bound destinations.
+     * This means we won't get hidden-service requests, directory requests, or
+     * any non-exit connections */
+    if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+        return;
     }
 
+    /* Get the time as early as possible, but after we're sure we want it */
     struct timeval now;
     tor_gettimeofday(&now);
 
-    /* ChanID, CircID, StreamID, BW, Direction, Time */
+    /* ChanID, CircID, StreamID, Direction, BW, Time */
     send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
             "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %d %"PRIu64" %ld.%06ld\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
-            conn->stream_id,
+            exitconn->stream_id,
             is_outbound,
             amt,
             (long)now.tv_sec, (long)now.tv_usec);
 }
 
-void control_event_privcount_stream_ended(edge_connection_t *conn) {
-    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED)) {
+/* Send a PrivCount stream end event triggered on exitconn.
+ * exitconn must not be NULL. */
+void
+control_event_privcount_stream_ended(const edge_connection_t *exitconn)
+{
+    if(!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED)) {
         return;
     }
 
-    if(!conn) {
+    if (BUG(!exitconn)) {
         return;
     }
 
-    /* if the circuit started here, this is our own stream and we can ignore it */
-    circuit_t* circ = circuit_get_by_edge_conn(conn);
-    or_circuit_t *orcirc = NULL;
-    if(circ) {
-        if(CIRCUIT_IS_ORIGIN(circ)) {
-            return;
-        }
-        /* now we know its an or_circuit_t */
-        orcirc = TO_OR_CIRCUIT(circ);
+    const or_circuit_t* orcirc = privcount_get_const_or_circuit(exitconn,
+                                                                NULL);
+
+    /* Only send stream events for connections from exits to legitimate
+     * client-bound destinations.
+     * This means we won't get hidden-service requests, directory requests, or
+     * any non-exit connections */
+    if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+      return;
     }
 
-    /* to exclude hidden-service "server" circuits, use this */
-    //CIRCUIT_PURPOSE_IS_CLIENT(circ->purpose)
-
-    /* only collect stream info from exits to legitimate client-bound destinations.
-     * this means we wont get hidden-service related info */
-    if(conn->base_.type != CONN_TYPE_EXIT) {
-        return;
-    }
-    int is_dns = conn->is_dns_request; // means a dns lookup
-    int is_dir = (conn->dirreq_id != 0 || conn->base_.port == 1) ? 1 : 0; // means a dir request
-    //int is_dir = (conn->base_.type == CONN_TYPE_DIR) ? 1 : 0;
-
+    /* Get the time as early as possible, but after we're sure we want it */
     struct timeval now;
     tor_gettimeofday(&now);
 
@@ -5884,93 +6290,107 @@ void control_event_privcount_stream_ended(edge_connection_t *conn) {
             "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %d %d\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
-            conn->stream_id, conn->base_.port,
-            conn->privcount_n_read, conn->privcount_n_written,
-            (long)conn->base_.timestamp_created_tv.tv_sec, (long)conn->base_.timestamp_created_tv.tv_usec,
+            exitconn->stream_id, exitconn->base_.port,
+            exitconn->privcount_n_read, exitconn->privcount_n_written,
+            (long)exitconn->base_.timestamp_created_tv.tv_sec, (long)exitconn->base_.timestamp_created_tv.tv_usec,
             (long)now.tv_sec, (long)now.tv_usec,
-            is_dns, is_dir);
+            0, 0);
 }
 
-void control_event_privcount_circuit_ended(or_circuit_t *orcirc) {
-    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+/* Send a PrivCount circuit end event triggered on orcirc, which may be an
+ * entry, exit, or middle connection.
+ * Sets the privcount_event_emitted flag in orcirc to ensure that each
+ * circuit only emits one event.
+ * orcirc must not be NULL. */
+void
+control_event_privcount_circuit_ended(or_circuit_t *orcirc)
+{
+    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
         return;
     }
 
-    if(!orcirc || orcirc->privcount_event_emitted) {
+    /* Ignore events that have already been sent
+     */
+    if (BUG(!orcirc) || orcirc->privcount_event_emitted) {
         return;
-    }
-
-    /* only collect circuit info from first hops on circuits that were actually used
-     * we already know this is not an origin circ since we have a or_circuit_t struct */
-    int prev_is_client = 0, prev_is_relay = 0;
-    if(orcirc->p_chan) {
-        if(connection_or_digest_is_known_relay(orcirc->p_chan->identity_digest)) {
-            prev_is_relay = 1;
-        } else if(orcirc->p_chan->is_client) {
-            prev_is_client = 1;
-        }
-    }
-
-    int next_is_client = 0, next_is_relay = 0;
-    if(orcirc->base_.n_chan) {
-        if(connection_or_digest_is_known_relay(orcirc->base_.n_chan->identity_digest)) {
-            next_is_relay = 1;
-        } else if(orcirc->base_.n_chan->is_client) {
-            next_is_client = 1;
-        }
     }
 
     orcirc->privcount_event_emitted = 1;
 
+    /* Filter out circuit overhead (directory circuits at directories). */
+    if (!privcount_data_is_used_for_circuit_events(TO_CIRCUIT(orcirc))) {
+      return;
+    }
+
+    /* Get the time as early as possible, but after we're sure we want it */
     struct timeval now;
     tor_gettimeofday(&now);
+
+    /* only collect circuit info from first hops on circuits that were actually used
+     * we already know this is not an origin circ since we have a or_circuit_t struct */
+    tor_assert_nonfatal(orcirc->p_chan);
+    int prev_is_client = privcount_is_client(orcirc->p_chan);
+    int next_is_client = privcount_is_client(orcirc->base_.n_chan);
+
+    char *p_addr = privcount_chan_addr_to_str_dup(orcirc->p_chan);
+    char *n_addr = privcount_chan_addr_to_str_dup(orcirc->base_.n_chan);
 
     /* ChanID, CircID, nCellsIn, nCellsOut, ReadBWDNS, WriteBWDNS, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, prevIsClient, prevIsRelay, NextIP, nextIsClient, nextIsRelay */
     send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
             "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d %s %d %d\r\n",
             orcirc->p_chan ? orcirc->p_chan->global_identifier : 0, orcirc->p_circ_id,
             orcirc->privcount_n_cells_in, orcirc->privcount_n_cells_out,
-            orcirc->privcount_n_read_dns, orcirc->privcount_n_written_dns,
-            orcirc->privcount_n_read_exit, orcirc->privcount_n_written_exit,
+            (uint64_t)0, (uint64_t)0,
+            orcirc->privcount_n_read, orcirc->privcount_n_written,
             (long)orcirc->base_.timestamp_created.tv_sec, (long)orcirc->base_.timestamp_created.tv_usec,
             (long)now.tv_sec, (long)now.tv_usec,
-            orcirc->p_chan ? channel_get_actual_remote_address(orcirc->p_chan) : "0.0.0.0",
-            prev_is_client, prev_is_relay,
-            orcirc->base_.n_chan ? channel_get_actual_remote_address(orcirc->base_.n_chan) : "0.0.0.0",
-            next_is_client, next_is_relay);
+            p_addr,
+            prev_is_client, !prev_is_client,
+            n_addr,
+            next_is_client, !next_is_client);
+
+    tor_free(p_addr);
+    tor_free(n_addr);
 }
 
-void control_event_privcount_connection_ended(or_connection_t *orconn) {
-    if(!get_options()->EnablePrivCount || !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
+/* Send a PrivCount connection end event triggered on orconn.
+ * orconn must not be NULL. */
+void
+control_event_privcount_connection_ended(const or_connection_t *orconn)
+{
+    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
         return;
     }
 
-    if(!orconn) {
+    if (BUG(!orconn)) {
         return;
     }
 
-    channel_t* p_chan = (channel_t*)orconn->chan;
-
-    int is_client = 0, is_relay = 0;
-    if(p_chan) {
-        if(connection_or_digest_is_known_relay(p_chan->identity_digest)) {
-            is_relay = 1;
-        } else if(p_chan->is_client) {
-            is_client = 1;
-        }
+    /* Filter out connection overhead (directory circuits at directories). */
+    if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
+        return;
     }
 
+
+    /* Get the time as early as possible, but after we're sure we want it */
     struct timeval now;
     tor_gettimeofday(&now);
+
+    const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+    int is_client = privcount_is_client(chan);
+
+    char *addr = privcount_chan_addr_to_str_dup(chan);
 
     /* ChanID, TimeStart, TimeEnd, IP, isClient, isRelay */
     send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
             "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d\r\n",
-            p_chan ? p_chan->global_identifier : 0,
+            chan ? chan->global_identifier : 0,
             (long)orconn->base_.timestamp_created_tv.tv_sec, (long)orconn->base_.timestamp_created_tv.tv_usec,
             (long)now.tv_sec, (long)now.tv_usec,
-            p_chan ? channel_get_actual_remote_address(p_chan) : "0.0.0.0",
-            is_client, is_relay);
+            addr,
+            is_client, !is_client);
+
+    tor_free(addr);
 }
 
 STATIC char *

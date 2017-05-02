@@ -1568,10 +1568,12 @@ typedef struct edge_connection_t {
 
   /** Bytes read since last call to control_event_stream_bandwidth_used() */
   uint32_t n_read;
+  /* Excludes bytes that privcount considers overhead */
   uint64_t privcount_n_read;
 
   /** Bytes written since last call to control_event_stream_bandwidth_used() */
   uint32_t n_written;
+  /* Excludes bytes that privcount considers overhead */
   uint64_t privcount_n_written;
 
   /** True iff this connection is for a DNS request only. */
@@ -3326,12 +3328,14 @@ typedef struct or_circuit_t {
    */
   uint32_t max_middle_cells;
 
+  /* Excludes cells and bytes that privcount considers overhead.
+   * Use privcount_add_saturating() when modifying these values to avoid
+   * overflow. */
   uint64_t privcount_n_cells_in;
   uint64_t privcount_n_cells_out;
-  uint64_t privcount_n_read_dns;
-  uint64_t privcount_n_written_dns;
-  uint64_t privcount_n_read_exit;
-  uint64_t privcount_n_written_exit;
+  uint64_t privcount_n_read;
+  uint64_t privcount_n_written;
+  /* Has the circuit ended event been emitted? */
   int privcount_event_emitted;
 
 } or_circuit_t;
