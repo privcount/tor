@@ -6285,16 +6285,15 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     struct timeval now;
     tor_gettimeofday(&now);
 
-    /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd, isDNS, isDir */
+    /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd */
     send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
-            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %d %d\r\n",
+            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             exitconn->stream_id, exitconn->base_.port,
             exitconn->privcount_n_read, exitconn->privcount_n_written,
             (long)exitconn->base_.timestamp_created_tv.tv_sec, (long)exitconn->base_.timestamp_created_tv.tv_usec,
-            (long)now.tv_sec, (long)now.tv_usec,
-            0, 0);
+            (long)now.tv_sec, (long)now.tv_usec);
 }
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
