@@ -6332,23 +6332,27 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
       return;
     }
 
+    if (!exitconn || !orcirc) {
+      return;
+    }
+
     /* Filter out directory data (at the directory) and non-exit connections */
     if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
         return;
     }
 
-    /* There's no time here. We should fix that if we ever use this event */
-#if 0
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
-#endif
+    char *now_str = privcount_timeval_now_to_str_dup();
 
+    /* ChanID, CircID, StreamID, Address, Time */
     send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
-                       "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %s\r\n",
+                       "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %" PRIu16 " %s %s\r\n",
                        orcirc->p_chan->global_identifier,
                        orcirc->p_circ_id,
-                       exitconn->base_.address);
+                       exitconn->stream_id,
+                       exitconn->base_.address,
+                       now_str);
+    tor_free(now_str);
 }
 
 /* Send a PrivCount stream data transfer event triggered on exitconn and
