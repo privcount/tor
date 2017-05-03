@@ -6270,6 +6270,7 @@ privcount_add_saturating(uint64_t a, uint64_t b) {
 
 #define NO_CHANNEL_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_ADDRESS "0.0.0.0"
+#define NO_CONNECTION_HOST "no-host"
 
 /* Return a newly allocated string containing the remote address of chan,
  * or a placeholder if chan is NULL or has no connection.
@@ -6291,6 +6292,41 @@ privcount_chan_addr_to_str_dup(const channel_t *chan)
     }
   } else {
     return tor_strdup(NO_CHANNEL_ADDRESS);
+  }
+}
+
+/* Return a newly allocated string containing the resolved remote address of
+ * exitconn, or a placeholder if exitconn is NULL or has a null addr.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_conn_addr_to_str_dup(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    if (!tor_addr_is_null(&exitconn->base_.addr)) {
+      return tor_addr_to_str_dup(&exitconn->base_.addr);
+    } else {
+      return tor_strdup(NO_CONNECTION_ADDRESS);
+    }
+  } else {
+    return tor_strdup(NO_CONNECTION_ADDRESS);
+  }
+}
+
+
+/* Return a newly allocated string containing the remote host name of exitconn,
+ * or a placeholder if exitconn is NULL or has no address.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_conn_host_to_str_dup(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    if (exitconn->base_.address) {
+      return tor_strdup(exitconn->base_.address);
+    } else {
+      return privcount_conn_addr_to_str_dup(exitconn);
+    }
+  } else {
+    return tor_strdup(NO_CONNECTION_HOST);
   }
 }
 
@@ -6427,15 +6463,20 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     char *created_str = privcount_timeval_to_str_dup(
                                       &exitconn->base_.timestamp_created_tv);
 
-    /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd */
+    char *host_str = privcount_conn_host_to_str_dup(exitconn);
+    char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
+
+    /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd, RemoteHost, RemoteIP */
     send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
-            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %s %s\r\n",
+            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %s %s %s %s\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             exitconn->stream_id, exitconn->base_.port,
             exitconn->privcount_n_read, exitconn->privcount_n_written,
             created_str,
-            now_str);
+            now_str,
+            host_str,
+            addr_str);
 
     tor_free(now_str);
     tor_free(created_str);
