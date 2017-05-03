@@ -6468,14 +6468,14 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
 
     char *addr = privcount_chan_addr_to_str_dup(chan);
 
-    /* ChanID, TimeStart, TimeEnd, IP, isClient, isRelay */
+    /* ChanID, TimeStart, TimeEnd, IP, isClient */
     send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
-            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d\r\n",
+            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %ld.%06ld %ld.%06ld %s %d\r\n",
             chan ? chan->global_identifier : 0,
             (long)orconn->base_.timestamp_created_tv.tv_sec, (long)orconn->base_.timestamp_created_tv.tv_usec,
             (long)now.tv_sec, (long)now.tv_usec,
             addr,
-            is_client, !is_client);
+            is_client);
 
     tor_free(addr);
 }
