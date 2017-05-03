@@ -6294,6 +6294,30 @@ privcount_chan_addr_to_str_dup(const channel_t *chan)
   }
 }
 
+/* Return a newly allocated string containing a formatted verion of tv.
+ * tv must not be NULL.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_timeval_to_str_dup(const struct timeval *tv)
+{
+  tor_assert(tv);
+
+  char *str = NULL;
+  tor_asprintf(&str, "%ld.%06ld", (long)tv->tv_sec, (long)tv->tv_usec);
+  return str;
+}
+
+/* Return a newly allocated string containing a formatted verion of
+ * the current time.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_timeval_now_to_str_dup(void)
+{
+  struct timeval now;
+  tor_gettimeofday(&now);
+  return privcount_timeval_to_str_dup(&now);
+}
+
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
@@ -6355,18 +6379,19 @@ control_event_privcount_stream_bytes_transferred(const edge_connection_t *exitco
     }
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
 
     /* ChanID, CircID, StreamID, Direction, BW, Time */
     send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
-            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %d %"PRIu64" %ld.%06ld\r\n",
+            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %d %"PRIu64" %s\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             exitconn->stream_id,
             is_outbound,
             amt,
-            (long)now.tv_sec, (long)now.tv_usec);
+            now_str);
+
+    tor_free(now_str);
 }
 
 /* Send a PrivCount stream end event triggered on exitconn.
@@ -6394,18 +6419,22 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     }
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
+    char *created_str = privcount_timeval_to_str_dup(
+                                      &exitconn->base_.timestamp_created_tv);
 
     /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd */
     send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
-            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld\r\n",
+            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %s %s\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             exitconn->stream_id, exitconn->base_.port,
             exitconn->privcount_n_read, exitconn->privcount_n_written,
-            (long)exitconn->base_.timestamp_created_tv.tv_sec, (long)exitconn->base_.timestamp_created_tv.tv_usec,
-            (long)now.tv_sec, (long)now.tv_usec);
+            created_str,
+            now_str);
+
+    tor_free(now_str);
+    tor_free(created_str);
 }
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
@@ -6434,8 +6463,11 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
     }
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
+    /* the difference between timestamp_created and timestamp_began only
+     * matters on clients */
+    char *created_str = privcount_timeval_to_str_dup(
+                                      &orcirc->base_.timestamp_created);
 
     /* we already know this is not an origin circ since we have a or_circuit_t struct */
     tor_assert_nonfatal(orcirc->p_chan);
@@ -6447,17 +6479,19 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 
     /* ChanID, CircID, NCellsIn, NCellsOut, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, PrevIsClient, NextIP, NextIsEdge */
     send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
-            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %s %d\r\n",
+            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %s %s %s %d %s %d\r\n",
             orcirc->p_chan ? orcirc->p_chan->global_identifier : 0, orcirc->p_circ_id,
             orcirc->privcount_n_cells_in, orcirc->privcount_n_cells_out,
             orcirc->privcount_n_read, orcirc->privcount_n_written,
-            (long)orcirc->base_.timestamp_created.tv_sec, (long)orcirc->base_.timestamp_created.tv_usec,
-            (long)now.tv_sec, (long)now.tv_usec,
+            created_str,
+            now_str,
             p_addr,
             prev_is_client,
             n_addr,
             next_is_edge);
 
+    tor_free(now_str);
+    tor_free(created_str);
     tor_free(p_addr);
     tor_free(n_addr);
 }
@@ -6482,8 +6516,9 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
 
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
+    char *created_str = privcount_timeval_to_str_dup(
+                                      &orconn->base_.timestamp_created_tv);
 
     const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
     int is_client = privcount_is_client(chan);
@@ -6492,13 +6527,15 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
 
     /* ChanID, TimeStart, TimeEnd, IP, isClient */
     send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
-            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %ld.%06ld %ld.%06ld %s %d\r\n",
+            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %s %s %s %d\r\n",
             chan ? chan->global_identifier : 0,
-            (long)orconn->base_.timestamp_created_tv.tv_sec, (long)orconn->base_.timestamp_created_tv.tv_usec,
-            (long)now.tv_sec, (long)now.tv_usec,
+            created_str,
+            now_str,
             addr,
             is_client);
 
+    tor_free(now_str);
+    tor_free(created_str);
     tor_free(addr);
 }
 
