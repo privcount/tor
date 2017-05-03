@@ -6244,7 +6244,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
  * exitconn must not be NULL.
  * If orcirc is NULL, it is looked up from exitconn. */
 void
-control_event_privcount_stream_data_xferred(const edge_connection_t *exitconn,
+control_event_privcount_stream_bytes_transferred(const edge_connection_t *exitconn,
                                             const or_circuit_t *orcirc,
                                             uint64_t amt, int is_outbound)
 {
