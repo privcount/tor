@@ -6423,19 +6423,18 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
     char *p_addr = privcount_chan_addr_to_str_dup(orcirc->p_chan);
     char *n_addr = privcount_chan_addr_to_str_dup(orcirc->base_.n_chan);
 
-    /* ChanID, CircID, nCellsIn, nCellsOut, ReadBWDNS, WriteBWDNS, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, prevIsClient, prevIsRelay, NextIP, NextIsEdge, nextIsRelay */
+    /* ChanID, CircID, NCellsIn, NCellsOut, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, PrevIsClient, NextIP, NextIsEdge */
     send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
-            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d %s %d %d\r\n",
+            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %s %d\r\n",
             orcirc->p_chan ? orcirc->p_chan->global_identifier : 0, orcirc->p_circ_id,
             orcirc->privcount_n_cells_in, orcirc->privcount_n_cells_out,
-            (uint64_t)0, (uint64_t)0,
             orcirc->privcount_n_read, orcirc->privcount_n_written,
             (long)orcirc->base_.timestamp_created.tv_sec, (long)orcirc->base_.timestamp_created.tv_usec,
             (long)now.tv_sec, (long)now.tv_usec,
             p_addr,
-            prev_is_client, !prev_is_client,
+            prev_is_client,
             n_addr,
-            next_is_edge, !next_is_edge);
+            next_is_edge);
 
     tor_free(p_addr);
     tor_free(n_addr);
