@@ -1167,7 +1167,8 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_HS_DESC_CONTENT, "HS_DESC_CONTENT" },
   { EVENT_NETWORK_LIVENESS, "NETWORK_LIVENESS" },
   { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
-  { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED, "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
+  { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
+    "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
   { EVENT_PRIVCOUNT_STREAM_ENDED, "PRIVCOUNT_STREAM_ENDED" },
   { EVENT_PRIVCOUNT_CIRCUIT_ENDED, "PRIVCOUNT_CIRCUIT_ENDED" },
   { EVENT_PRIVCOUNT_CONNECTION_ENDED, "PRIVCOUNT_CONNECTION_ENDED" },
@@ -5822,7 +5823,8 @@ static int privcount_is_client(const channel_t *chan);
 /* Is conn itself a directory server connection?
  * NULL connections are not classified as directory connections. */
 static int
-privcount_connection_is_dir_server_conn(const connection_t *conn) {
+privcount_connection_is_dir_server_conn(const connection_t *conn)
+{
   /* DirPort connections, or the directory side of linked BEGINDIR connections
    */
   return conn && conn->type == CONN_TYPE_DIR && DIR_CONN_IS_SERVER(conn);
@@ -6258,7 +6260,8 @@ privcount_is_client(const channel_t* chan)
 
 /* Perform a 64-bit saturating add of a and b */
 uint64_t
-privcount_add_saturating(uint64_t a, uint64_t b) {
+privcount_add_saturating(uint64_t a, uint64_t b)
+{
   /* Check before performing the addition to avoid overflow, even though it
    * is defined as wrapping on unsigned integers. */
   if (PREDICT_LIKELY(UINT64_MAX - a > b)) {
@@ -6312,7 +6315,6 @@ privcount_conn_addr_to_str_dup(const edge_connection_t *exitconn)
   }
 }
 
-
 /* Return a newly allocated string containing the remote host name of exitconn,
  * or a placeholder if exitconn is NULL or has no address.
  * The returned string must be freed using tor_free(). */
@@ -6364,31 +6366,32 @@ void
 control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
                                      const or_circuit_t *orcirc)
 {
-    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_DNS_RESOLVED)) {
-      return;
-    }
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_DNS_RESOLVED)) {
+    return;
+  }
 
-    if (!exitconn || !orcirc) {
-      return;
-    }
+  if (!exitconn || !orcirc) {
+    return;
+  }
 
-    /* Filter out directory data (at the directory) and non-exit connections */
-    if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
-        return;
-    }
+  /* Filter out directory data (at the directory) and non-exit connections */
+  if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
+    return;
+  }
 
-    /* Get the time as early as possible, but after we're sure we want it */
-    char *now_str = privcount_timeval_now_to_str_dup();
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_str_dup();
 
-    /* ChanID, CircID, StreamID, Address, Time */
-    send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
-                       "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %" PRIu16 " %s %s\r\n",
-                       orcirc->p_chan->global_identifier,
-                       orcirc->p_circ_id,
-                       exitconn->stream_id,
-                       exitconn->base_.address,
-                       now_str);
-    tor_free(now_str);
+  /* ChanID, CircID, StreamID, Address, Time */
+  send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
+                     "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %"
+                     PRIu16 " %s %s\r\n",
+                     orcirc->p_chan->global_identifier,
+                     orcirc->p_circ_id,
+                     exitconn->stream_id,
+                     exitconn->base_.address,
+                     now_str);
+  tor_free(now_str);
 }
 
 /* Send a PrivCount stream data transfer event triggered on exitconn and
@@ -6398,40 +6401,44 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
  * exitconn must not be NULL.
  * If orcirc is NULL, it is looked up from exitconn. */
 void
-control_event_privcount_stream_bytes_transferred(const edge_connection_t *exitconn,
+control_event_privcount_stream_bytes_transferred(
+                                            const edge_connection_t *exitconn,
                                             const or_circuit_t *orcirc,
-                                            uint64_t amt, int is_outbound)
+                                            uint64_t amt,
+                                            int is_outbound)
 {
-    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED)) {
-        return;
-    }
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED)) {
+    return;
+  }
 
-    if (BUG(!exitconn)) {
-        return;
-    }
+  if (BUG(!exitconn)) {
+    return;
+  }
 
-    /* Only send stream events for connections from exits to legitimate
-     * client-bound destinations.
-     * This means we won't get hidden-service requests, directory requests, or
-     * any non-exit connections */
-    if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
-        return;
-    }
+  /* Only send stream events for connections from exits to legitimate
+   * client-bound destinations.
+   * This means we won't get hidden-service requests, directory requests, or
+   * any non-exit connections */
+  if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+    return;
+  }
 
-    /* Get the time as early as possible, but after we're sure we want it */
-    char *now_str = privcount_timeval_now_to_str_dup();
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_str_dup();
 
-    /* ChanID, CircID, StreamID, Direction, BW, Time */
-    send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
-            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %d %"PRIu64" %s\r\n",
-            orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
-            orcirc ? orcirc->p_circ_id : 0,
-            exitconn->stream_id,
-            is_outbound,
-            amt,
-            now_str);
+  /* ChanID, CircID, StreamID, Direction, BW, Time */
+  send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
+                     "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %" PRIu64
+                     " %" PRIu32 " %" PRIu16 " %d %" PRIu64 " %s\r\n",
+                     (orcirc && orcirc->p_chan ?
+                      orcirc->p_chan->global_identifier : 0),
+                     orcirc ? orcirc->p_circ_id : 0,
+                     exitconn->stream_id,
+                     is_outbound,
+                     amt,
+                     now_str);
 
-    tor_free(now_str);
+  tor_free(now_str);
 }
 
 /* Send a PrivCount stream end event triggered on exitconn.
@@ -6439,47 +6446,53 @@ control_event_privcount_stream_bytes_transferred(const edge_connection_t *exitco
 void
 control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 {
-    if(!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED)) {
-        return;
-    }
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED)) {
+    return;
+  }
 
-    if (BUG(!exitconn)) {
-        return;
-    }
+  if (BUG(!exitconn)) {
+    return;
+  }
 
-    const or_circuit_t* orcirc = privcount_get_const_or_circuit(exitconn,
-                                                                NULL);
+  const or_circuit_t* orcirc = privcount_get_const_or_circuit(exitconn,
+                                                              NULL);
 
-    /* Only send stream events for connections from exits to legitimate
-     * client-bound destinations.
-     * This means we won't get hidden-service requests, directory requests, or
-     * any non-exit connections */
-    if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
-      return;
-    }
+  /* Only send stream events for connections from exits to legitimate
+   * client-bound destinations.
+   * This means we won't get hidden-service requests, directory requests, or
+   * any non-exit connections */
+  if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+    return;
+  }
 
-    /* Get the time as early as possible, but after we're sure we want it */
-    char *now_str = privcount_timeval_now_to_str_dup();
-    char *created_str = privcount_timeval_to_str_dup(
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_str_dup();
+  char *created_str = privcount_timeval_to_str_dup(
                                       &exitconn->base_.timestamp_created_tv);
 
-    char *host_str = privcount_conn_host_to_str_dup(exitconn);
-    char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
+  char *host_str = privcount_conn_host_to_str_dup(exitconn);
+  char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
 
-    /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd, RemoteHost, RemoteIP */
-    send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
-            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %s %s %s %s\r\n",
-            orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
-            orcirc ? orcirc->p_circ_id : 0,
-            exitconn->stream_id, exitconn->base_.port,
-            exitconn->privcount_n_read, exitconn->privcount_n_written,
-            created_str,
-            now_str,
-            host_str,
-            addr_str);
+  /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd,
+   * RemoteHost, RemoteIP */
+  send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
+                     "650 PRIVCOUNT_STREAM_ENDED %" PRIu64 " %" PRIu32
+                     " %" PRIu16 " %" PRIu16 " %" PRIu64 " %" PRIu64
+                     " %s %s %s %s\r\n",
+                     (orcirc && orcirc->p_chan ?
+                      orcirc->p_chan->global_identifier : 0),
+                     orcirc ? orcirc->p_circ_id : 0,
+                     exitconn->stream_id,
+                     exitconn->base_.port,
+                     exitconn->privcount_n_read,
+                     exitconn->privcount_n_written,
+                     created_str,
+                     now_str,
+                     host_str,
+                     addr_str);
 
-    tor_free(now_str);
-    tor_free(created_str);
+  tor_free(now_str);
+  tor_free(created_str);
 }
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
@@ -6490,55 +6503,62 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 void
 control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 {
-    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
-        return;
-    }
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+    return;
+  }
 
-    /* Ignore events that have already been sent
-     */
-    if (BUG(!orcirc) || orcirc->privcount_event_emitted) {
-        return;
-    }
+  /* Ignore events that have already been sent
+   */
+  if (BUG(!orcirc) || orcirc->privcount_event_emitted) {
+    return;
+  }
 
-    orcirc->privcount_event_emitted = 1;
+  orcirc->privcount_event_emitted = 1;
 
-    /* Filter out circuit overhead (directory circuits at directories). */
-    if (!privcount_data_is_used_for_circuit_events(TO_CIRCUIT(orcirc))) {
-      return;
-    }
+  /* Filter out circuit overhead (directory circuits at directories). */
+  if (!privcount_data_is_used_for_circuit_events(TO_CIRCUIT(orcirc))) {
+    return;
+  }
 
-    /* Get the time as early as possible, but after we're sure we want it */
-    char *now_str = privcount_timeval_now_to_str_dup();
-    /* the difference between timestamp_created and timestamp_began only
-     * matters on clients */
-    char *created_str = privcount_timeval_to_str_dup(
-                                      &orcirc->base_.timestamp_created);
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_str_dup();
+  /* the difference between timestamp_created and timestamp_began only
+   * matters on clients */
+  char *created_str = privcount_timeval_to_str_dup(
+                                            &orcirc->base_.timestamp_created);
 
-    /* we already know this is not an origin circ since we have a or_circuit_t struct */
-    tor_assert_nonfatal(orcirc->p_chan);
-    int prev_is_client = privcount_is_client(orcirc->p_chan);
-    int next_is_edge = privcount_data_is_exit(NULL, orcirc);
+  /* we already know this is not an origin circ since we have a or_circuit_t
+   * struct */
+  tor_assert_nonfatal(orcirc->p_chan);
+  int prev_is_client = privcount_is_client(orcirc->p_chan);
+  int next_is_edge = privcount_data_is_exit(NULL, orcirc);
 
-    char *p_addr = privcount_chan_addr_to_str_dup(orcirc->p_chan);
-    char *n_addr = privcount_chan_addr_to_str_dup(orcirc->base_.n_chan);
+  char *p_addr = privcount_chan_addr_to_str_dup(orcirc->p_chan);
+  char *n_addr = privcount_chan_addr_to_str_dup(orcirc->base_.n_chan);
 
-    /* ChanID, CircID, NCellsIn, NCellsOut, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, PrevIsClient, NextIP, NextIsEdge */
-    send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
-            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %s %s %s %d %s %d\r\n",
-            orcirc->p_chan ? orcirc->p_chan->global_identifier : 0, orcirc->p_circ_id,
-            orcirc->privcount_n_cells_in, orcirc->privcount_n_cells_out,
-            orcirc->privcount_n_read, orcirc->privcount_n_written,
-            created_str,
-            now_str,
-            p_addr,
-            prev_is_client,
-            n_addr,
-            next_is_edge);
+  /* ChanID, CircID, NCellsIn, NCellsOut, ReadBWExit, WriteBWExit, TimeStart,
+   * TimeEnd, PrevIP, PrevIsClient, NextIP, NextIsEdge */
+  send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
+                     "650 PRIVCOUNT_CIRCUIT_ENDED %" PRIu64 " %" PRIu32
+                     " %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64
+                     " %s %s %s %d %s %d\r\n",
+                     orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
+                     orcirc->p_circ_id,
+                     orcirc->privcount_n_cells_in,
+                     orcirc->privcount_n_cells_out,
+                     orcirc->privcount_n_read,
+                     orcirc->privcount_n_written,
+                     created_str,
+                     now_str,
+                     p_addr,
+                     prev_is_client,
+                     n_addr,
+                     next_is_edge);
 
-    tor_free(now_str);
-    tor_free(created_str);
-    tor_free(p_addr);
-    tor_free(n_addr);
+  tor_free(now_str);
+  tor_free(created_str);
+  tor_free(p_addr);
+  tor_free(n_addr);
 }
 
 /* Send a PrivCount connection end event triggered on orconn.
@@ -6546,42 +6566,42 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 void
 control_event_privcount_connection_ended(const or_connection_t *orconn)
 {
-    if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
-        return;
-    }
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
+    return;
+  }
 
-    if (BUG(!orconn)) {
-        return;
-    }
+  if (BUG(!orconn)) {
+    return;
+  }
 
-    /* Filter out connection overhead (directory circuits at directories). */
-    if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
-        return;
-    }
+  /* Filter out connection overhead (directory circuits at directories). */
+  if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
+    return;
+  }
 
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_str_dup();
+  char *created_str = privcount_timeval_to_str_dup(
+                                        &orconn->base_.timestamp_created_tv);
 
-    /* Get the time as early as possible, but after we're sure we want it */
-    char *now_str = privcount_timeval_now_to_str_dup();
-    char *created_str = privcount_timeval_to_str_dup(
-                                      &orconn->base_.timestamp_created_tv);
+  const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+  int is_client = privcount_is_client(chan);
 
-    const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
-    int is_client = privcount_is_client(chan);
+  char *addr = privcount_chan_addr_to_str_dup(chan);
 
-    char *addr = privcount_chan_addr_to_str_dup(chan);
+  /* ChanID, TimeStart, TimeEnd, IP, isClient */
+  send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
+                     "650 PRIVCOUNT_CONNECTION_ENDED %" PRIu64
+                     " %s %s %s %d\r\n",
+                     chan ? chan->global_identifier : 0,
+                     created_str,
+                     now_str,
+                     addr,
+                     is_client);
 
-    /* ChanID, TimeStart, TimeEnd, IP, isClient */
-    send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
-            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %s %s %s %d\r\n",
-            chan ? chan->global_identifier : 0,
-            created_str,
-            now_str,
-            addr,
-            is_client);
-
-    tor_free(now_str);
-    tor_free(created_str);
-    tor_free(addr);
+  tor_free(now_str);
+  tor_free(created_str);
+  tor_free(addr);
 }
 
 STATIC char *
