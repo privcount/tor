@@ -3632,7 +3632,7 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
                                                   n_read);
       }
       if (privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
-        control_event_privcount_stream_data_xferred(exitconn, orcirc,
+        control_event_privcount_stream_bytes_transferred(exitconn, orcirc,
                                                     n_read, 0);
       }
     }
@@ -3943,7 +3943,7 @@ connection_handle_write_impl(connection_t *conn, int force)
                                                 n_written);
     }
     if (privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
-      control_event_privcount_stream_data_xferred(exitconn, orcirc,
+      control_event_privcount_stream_bytes_transferred(exitconn, orcirc,
                                                   n_written, 1);
     }
   }

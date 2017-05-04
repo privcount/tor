@@ -5794,6 +5794,9 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
   return 0;
 }
 
+/* PrivCount static declarations */
+static int privcount_is_client(const channel_t *chan);
+
 /* Is conn itself a directory server connection?
  * NULL connections are not classified as directory connections. */
 static int
@@ -5944,33 +5947,119 @@ privcount_get_const_or_circuit(const edge_connection_t* exitconn,
                                                 (or_circuit_t *)orcirc);
 }
 
-/* Are conn or circ Exit (or BEGINDIR), and do they end at this relay?
- * NULL connections or circuits are not classified as Exit-related. */
+/* Is exitconn an Exit (or BEGINDIR) connection, and does it end at this
+ * relay?
+ * If exitconn is NULL, returns 0. */
 static int
-privcount_data_is_exit(const edge_connection_t* exitconn,
-                       const or_circuit_t *orcirc)
+privcount_connection_is_exit(const edge_connection_t* exitconn)
 {
   if (!exitconn) {
     return 0;
   }
 
-  const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+  return TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
+}
 
-  if (!oc) {
+/* Is any stream in the linked list starting with exitconn an Exit
+ * (or BEGINDIR) connection, and does it end at this relay?
+ * If exitconn is NULL, returns 0. */
+static int
+privcount_connection_list_any_is_exit(const edge_connection_t* exitconn)
+{
+  const edge_connection_t* ec = exitconn;
+  /* walk the linked list of exit streams, checking each one */
+  while (ec) {
+    if (privcount_connection_is_exit(ec)) {
+      return 1;
+    }
+    ec = ec->next_stream;
+  }
+
+  return 0;
+}
+
+/* Is orcirc an origin circuit? (a circuit that originated here)
+ * If orcirc is NULL, returns 0. */
+static int
+privcount_circuit_is_origin(const or_circuit_t *orcirc)
+{
+  if (!orcirc) {
     return 0;
   }
 
   /* if the circuit started here, this is our own stream and we can ignore it
    */
-  if (CIRCUIT_IS_ORIGIN(TO_CIRCUIT(oc))) {
+  if (CIRCUIT_IS_ORIGIN(TO_CIRCUIT(orcirc))) {
+    return 1;
+  }
+
+  if (!orcirc->p_chan) {
+    return 1;
+  }
+
+  return 0;
+}
+
+/* Are conn or circ Exit (or BEGINDIR), and do they end at this relay?
+ * This function returns occasional false positives when exitconn is NULL,
+ * and there are no streams and no next channel.
+ * If either is NULL, it is looked up from the other.
+ * If both are NULL, returns 0. */
+static int
+privcount_data_is_exit(const edge_connection_t* exitconn,
+                       const or_circuit_t *orcirc)
+{
+  if (exitconn) {
+    /* look up orcirc from exitconn if it is NULL */
+    const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+
+    if (privcount_circuit_is_origin(oc)) {
+      return 0;
+    }
+
+    return privcount_connection_is_exit(exitconn);
+  }
+
+  if (orcirc && !exitconn) {
+
+    if (privcount_circuit_is_origin(orcirc)) {
+      return 0;
+    }
+
+    /* If there are no streams, fall back to checking the consensus */
+    if (!orcirc->n_streams && !orcirc->resolving_streams) {
+
+      if (!TO_CONN(orcirc)->n_chan) {
+        /* Probably an unused or cleaned up exit connection */
+        return 1;
+      }
+
+      if (!privcount_is_client(TO_CONN(orcirc)->n_chan)) {
+        /* Definitely not an exit connection */
+        return 0;
+      }
+
+      /* Something is very wrong here: no relays should connect to clients
+       * on n_chan, so instead we have a TLS connection with an internet
+       * server??? */
+      tor_assert_nonfatal_unreached();
+      return 1;
+    }
+
+    /* Walk the stream list to find out if any are exit streams */
+    if (privcount_connection_list_any_is_exit(orcirc->n_streams)) {
+      return 1;
+    }
+
+    if (privcount_connection_list_any_is_exit(orcirc->resolving_streams)) {
+      return 1;
+    }
+
+    /* Definitely not an exit connection: all streams are non-exit streams */
     return 0;
   }
 
-  if (!oc->p_chan) {
-    return 0;
-  }
-
-  return TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
+  return 0;
 }
 
 /* Should PrivCount send events and update byte and cell counts from this
@@ -6090,6 +6179,7 @@ privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
 }
 
 /* Is the remote end of chan a relay in our current consensus?
+ * Don't use this function directly, use privcount_is_client().
  * If chan is NULL, returns 0. */
 static int
 privcount_is_consensus_relay(const channel_t* chan)
@@ -6158,6 +6248,7 @@ privcount_add_saturating(uint64_t a, uint64_t b) {
 
 #define NO_CHANNEL_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_ADDRESS "0.0.0.0"
+#define NO_CONNECTION_HOST "no-host"
 
 /* Return a newly allocated string containing the remote address of chan,
  * or a placeholder if chan is NULL or has no connection.
@@ -6182,6 +6273,65 @@ privcount_chan_addr_to_str_dup(const channel_t *chan)
   }
 }
 
+/* Return a newly allocated string containing the resolved remote address of
+ * exitconn, or a placeholder if exitconn is NULL or has a null addr.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_conn_addr_to_str_dup(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    if (!tor_addr_is_null(&exitconn->base_.addr)) {
+      return tor_addr_to_str_dup(&exitconn->base_.addr);
+    } else {
+      return tor_strdup(NO_CONNECTION_ADDRESS);
+    }
+  } else {
+    return tor_strdup(NO_CONNECTION_ADDRESS);
+  }
+}
+
+
+/* Return a newly allocated string containing the remote host name of exitconn,
+ * or a placeholder if exitconn is NULL or has no address.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_conn_host_to_str_dup(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    if (exitconn->base_.address) {
+      return tor_strdup(exitconn->base_.address);
+    } else {
+      return privcount_conn_addr_to_str_dup(exitconn);
+    }
+  } else {
+    return tor_strdup(NO_CONNECTION_HOST);
+  }
+}
+
+/* Return a newly allocated string containing a formatted verion of tv.
+ * tv must not be NULL.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_timeval_to_str_dup(const struct timeval *tv)
+{
+  tor_assert(tv);
+
+  char *str = NULL;
+  tor_asprintf(&str, "%ld.%06ld", (long)tv->tv_sec, (long)tv->tv_usec);
+  return str;
+}
+
+/* Return a newly allocated string containing a formatted verion of
+ * the current time.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_timeval_now_to_str_dup(void)
+{
+  struct timeval now;
+  tor_gettimeofday(&now);
+  return privcount_timeval_to_str_dup(&now);
+}
+
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
@@ -6196,23 +6346,27 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
       return;
     }
 
+    if (!exitconn || !orcirc) {
+      return;
+    }
+
     /* Filter out directory data (at the directory) and non-exit connections */
     if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
         return;
     }
 
-    /* There's no time here. We should fix that if we ever use this event */
-#if 0
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
-#endif
+    char *now_str = privcount_timeval_now_to_str_dup();
 
+    /* ChanID, CircID, StreamID, Address, Time */
     send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
-                       "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %s\r\n",
+                       "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %" PRIu16 " %s %s\r\n",
                        orcirc->p_chan->global_identifier,
                        orcirc->p_circ_id,
-                       exitconn->base_.address);
+                       exitconn->stream_id,
+                       exitconn->base_.address,
+                       now_str);
+    tor_free(now_str);
 }
 
 /* Send a PrivCount stream data transfer event triggered on exitconn and
@@ -6222,7 +6376,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
  * exitconn must not be NULL.
  * If orcirc is NULL, it is looked up from exitconn. */
 void
-control_event_privcount_stream_data_xferred(const edge_connection_t *exitconn,
+control_event_privcount_stream_bytes_transferred(const edge_connection_t *exitconn,
                                             const or_circuit_t *orcirc,
                                             uint64_t amt, int is_outbound)
 {
@@ -6243,18 +6397,19 @@ control_event_privcount_stream_data_xferred(const edge_connection_t *exitconn,
     }
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
 
     /* ChanID, CircID, StreamID, Direction, BW, Time */
     send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
-            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %d %"PRIu64" %ld.%06ld\r\n",
+            "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %"PRIu64" %"PRIu32" %"PRIu16" %d %"PRIu64" %s\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             exitconn->stream_id,
             is_outbound,
             amt,
-            (long)now.tv_sec, (long)now.tv_usec);
+            now_str);
+
+    tor_free(now_str);
 }
 
 /* Send a PrivCount stream end event triggered on exitconn.
@@ -6282,19 +6437,27 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     }
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
+    char *created_str = privcount_timeval_to_str_dup(
+                                      &exitconn->base_.timestamp_created_tv);
 
-    /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd, isDNS, isDir */
+    char *host_str = privcount_conn_host_to_str_dup(exitconn);
+    char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
+
+    /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd, RemoteHost, RemoteIP */
     send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
-            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %d %d\r\n",
+            "650 PRIVCOUNT_STREAM_ENDED %"PRIu64" %"PRIu32" %"PRIu16" %"PRIu16" %"PRIu64" %"PRIu64" %s %s %s %s\r\n",
             orcirc && orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
             orcirc ? orcirc->p_circ_id : 0,
             exitconn->stream_id, exitconn->base_.port,
             exitconn->privcount_n_read, exitconn->privcount_n_written,
-            (long)exitconn->base_.timestamp_created_tv.tv_sec, (long)exitconn->base_.timestamp_created_tv.tv_usec,
-            (long)now.tv_sec, (long)now.tv_usec,
-            0, 0);
+            created_str,
+            now_str,
+            host_str,
+            addr_str);
+
+    tor_free(now_str);
+    tor_free(created_str);
 }
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
@@ -6323,32 +6486,35 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
     }
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
+    /* the difference between timestamp_created and timestamp_began only
+     * matters on clients */
+    char *created_str = privcount_timeval_to_str_dup(
+                                      &orcirc->base_.timestamp_created);
 
-    /* only collect circuit info from first hops on circuits that were actually used
-     * we already know this is not an origin circ since we have a or_circuit_t struct */
+    /* we already know this is not an origin circ since we have a or_circuit_t struct */
     tor_assert_nonfatal(orcirc->p_chan);
     int prev_is_client = privcount_is_client(orcirc->p_chan);
-    int next_is_client = privcount_is_client(orcirc->base_.n_chan);
+    int next_is_edge = privcount_data_is_exit(NULL, orcirc);
 
     char *p_addr = privcount_chan_addr_to_str_dup(orcirc->p_chan);
     char *n_addr = privcount_chan_addr_to_str_dup(orcirc->base_.n_chan);
 
-    /* ChanID, CircID, nCellsIn, nCellsOut, ReadBWDNS, WriteBWDNS, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, prevIsClient, prevIsRelay, NextIP, nextIsClient, nextIsRelay */
+    /* ChanID, CircID, NCellsIn, NCellsOut, ReadBWExit, WriteBWExit, TimeStart, TimeEnd, PrevIP, PrevIsClient, NextIP, NextIsEdge */
     send_control_event(EVENT_PRIVCOUNT_CIRCUIT_ENDED,
-            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d %s %d %d\r\n",
+            "650 PRIVCOUNT_CIRCUIT_ENDED %"PRIu64" %"PRIu32" %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" %s %s %s %d %s %d\r\n",
             orcirc->p_chan ? orcirc->p_chan->global_identifier : 0, orcirc->p_circ_id,
             orcirc->privcount_n_cells_in, orcirc->privcount_n_cells_out,
-            (uint64_t)0, (uint64_t)0,
             orcirc->privcount_n_read, orcirc->privcount_n_written,
-            (long)orcirc->base_.timestamp_created.tv_sec, (long)orcirc->base_.timestamp_created.tv_usec,
-            (long)now.tv_sec, (long)now.tv_usec,
+            created_str,
+            now_str,
             p_addr,
-            prev_is_client, !prev_is_client,
+            prev_is_client,
             n_addr,
-            next_is_client, !next_is_client);
+            next_is_edge);
 
+    tor_free(now_str);
+    tor_free(created_str);
     tor_free(p_addr);
     tor_free(n_addr);
 }
@@ -6373,23 +6539,26 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
 
 
     /* Get the time as early as possible, but after we're sure we want it */
-    struct timeval now;
-    tor_gettimeofday(&now);
+    char *now_str = privcount_timeval_now_to_str_dup();
+    char *created_str = privcount_timeval_to_str_dup(
+                                      &orconn->base_.timestamp_created_tv);
 
     const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
     int is_client = privcount_is_client(chan);
 
     char *addr = privcount_chan_addr_to_str_dup(chan);
 
-    /* ChanID, TimeStart, TimeEnd, IP, isClient, isRelay */
+    /* ChanID, TimeStart, TimeEnd, IP, isClient */
     send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
-            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %ld.%06ld %ld.%06ld %s %d %d\r\n",
+            "650 PRIVCOUNT_CONNECTION_ENDED %"PRIu64" %s %s %s %d\r\n",
             chan ? chan->global_identifier : 0,
-            (long)orconn->base_.timestamp_created_tv.tv_sec, (long)orconn->base_.timestamp_created_tv.tv_usec,
-            (long)now.tv_sec, (long)now.tv_usec,
+            created_str,
+            now_str,
             addr,
-            is_client, !is_client);
+            is_client);
 
+    tor_free(now_str);
+    tor_free(created_str);
     tor_free(addr);
 }
 
