@@ -168,7 +168,7 @@ uint64_t privcount_add_saturating(uint64_t a, uint64_t b);
 
 void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
                                           const or_circuit_t *orcirc);
-void control_event_privcount_stream_data_xferred(
+void control_event_privcount_stream_bytes_transferred(
                                             const edge_connection_t *exitconn,
                                             const or_circuit_t *orcirc,
                                             uint64_t amt, int is_outbound);
