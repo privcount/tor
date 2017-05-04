@@ -3607,7 +3607,6 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
       else
         edge_conn->n_read = UINT32_MAX;
 
-
       if (circ && CIRCUIT_IS_ORIGIN(circ)) {
         ocirc = TO_ORIGIN_CIRCUIT(circ);
         if (PREDICT_LIKELY(UINT32_MAX - ocirc->n_read_circ_bw > n_read))
@@ -5193,3 +5192,4 @@ clock_skew_warning(const connection_t *conn, long apparent_skew, int trusted,
                                  apparent_skew, ext_source);
   tor_free(ext_source);
 }
+
