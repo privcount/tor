@@ -6528,8 +6528,7 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
                                             &orcirc->base_.timestamp_created);
 
   /* we already know this is not an origin circ since we have a or_circuit_t
-   * struct */
-  tor_assert_nonfatal(orcirc->p_chan);
+   * struct. But orcirc->p_chan can still be NULL here. */
   int prev_is_client = privcount_is_client(orcirc->p_chan);
   int next_is_edge = privcount_data_is_exit(NULL, orcirc);
 
