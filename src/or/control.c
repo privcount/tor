@@ -6356,6 +6356,134 @@ privcount_timeval_now_to_str_dup(void)
   return privcount_timeval_to_str_dup(&now);
 }
 
+/* Return orcirc->p_chan->global_identifier, or 0 if any pointer in the chain
+ * is NULL. */
+static uint64_t
+privcount_or_circuit_p_chan_global_identifier(const or_circuit_t *orcirc)
+{
+  if (orcirc && orcirc->p_chan) {
+    return orcirc->p_chan->global_identifier;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orcirc->p_circ_id, or 0 if orcirc is NULL. */
+static circid_t
+privcount_or_circuit_p_circ_id(const or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return orcirc->p_circ_id;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orcirc->privcount_n_cells_in, or 0 if orcirc is NULL. */
+static uint64_t
+privcount_or_circuit_n_cells_in(const or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return orcirc->privcount_n_cells_in;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orcirc->privcount_n_cells_out, or 0 if orcirc is NULL. */
+static uint64_t
+privcount_or_circuit_n_cells_out(const or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return orcirc->privcount_n_cells_out;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orcirc->privcount_n_read, or 0 if orcirc is NULL. */
+static uint64_t
+privcount_or_circuit_n_read(const or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return orcirc->privcount_n_read;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orcirc->privcount_n_written, or 0 if orcirc is NULL. */
+static uint64_t
+privcount_or_circuit_n_written(const or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return orcirc->privcount_n_written;
+  } else {
+    return 0;
+  }
+}
+
+/* Return exitconn->stream_id, or 0 if exitconn is NULL. */
+static streamid_t
+privcount_edge_connection_stream_id(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    return exitconn->stream_id;
+  } else {
+    return 0;
+  }
+}
+
+/* Return exitconn->base_.port, or 0 if exitconn is NULL. */
+static uint16_t
+privcount_edge_connection_port(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    return exitconn->base_.port;
+  } else {
+    return 0;
+  }
+}
+
+/* Return exitconn->privcount_n_read, or 0 if exitconn is NULL. */
+static uint64_t
+privcount_edge_connection_n_read(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    return exitconn->privcount_n_read;
+  } else {
+    return 0;
+  }
+}
+
+/* Return exitconn->privcount_n_written, or 0 if exitconn is NULL. */
+static uint64_t
+privcount_edge_connection_n_written(const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    return exitconn->privcount_n_written;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orconn's base channel TLS global idenfitier, or 0 if any pointer in
+ * the chain is NULL. */
+static uint64_t
+privcount_or_connection_chan_global_identifier(const or_connection_t *orconn)
+{
+  if (orconn) {
+    const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+    if (chan) {
+      return chan->global_identifier;
+    } else {
+      return 0;
+    }
+  } else {
+    return 0;
+  }
+}
+
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
@@ -6381,17 +6509,19 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 
   /* Get the time as early as possible, but after we're sure we want it */
   char *now_str = privcount_timeval_now_to_str_dup();
+  char *host_str = privcount_conn_host_to_str_dup(exitconn);
 
   /* ChanID, CircID, StreamID, Address, Time */
   send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
                      "650 PRIVCOUNT_DNS_RESOLVED %" PRIu64 " %" PRIu32 " %"
                      PRIu16 " %s %s\r\n",
-                     orcirc->p_chan->global_identifier,
-                     orcirc->p_circ_id,
-                     exitconn->stream_id,
-                     exitconn->base_.address,
+                     privcount_or_circuit_p_chan_global_identifier(orcirc),
+                     privcount_or_circuit_p_circ_id(orcirc),
+                     privcount_edge_connection_stream_id(exitconn),
+                     host_str,
                      now_str);
   tor_free(now_str);
+  tor_free(host_str);
 }
 
 /* Send a PrivCount stream data transfer event triggered on exitconn and
@@ -6430,10 +6560,9 @@ control_event_privcount_stream_bytes_transferred(
   send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
                      "650 PRIVCOUNT_STREAM_BYTES_TRANSFERRED %" PRIu64
                      " %" PRIu32 " %" PRIu16 " %d %" PRIu64 " %s\r\n",
-                     (orcirc && orcirc->p_chan ?
-                      orcirc->p_chan->global_identifier : 0),
-                     orcirc ? orcirc->p_circ_id : 0,
-                     exitconn->stream_id,
+                     privcount_or_circuit_p_chan_global_identifier(orcirc),
+                     privcount_or_circuit_p_circ_id(orcirc),
+                     privcount_edge_connection_stream_id(exitconn),
                      is_outbound,
                      amt,
                      now_str);
@@ -6479,13 +6608,12 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
                      "650 PRIVCOUNT_STREAM_ENDED %" PRIu64 " %" PRIu32
                      " %" PRIu16 " %" PRIu16 " %" PRIu64 " %" PRIu64
                      " %s %s %s %s\r\n",
-                     (orcirc && orcirc->p_chan ?
-                      orcirc->p_chan->global_identifier : 0),
-                     orcirc ? orcirc->p_circ_id : 0,
-                     exitconn->stream_id,
-                     exitconn->base_.port,
-                     exitconn->privcount_n_read,
-                     exitconn->privcount_n_written,
+                     privcount_or_circuit_p_chan_global_identifier(orcirc),
+                     privcount_or_circuit_p_circ_id(orcirc),
+                     privcount_edge_connection_stream_id(exitconn),
+                     privcount_edge_connection_port(exitconn),
+                     privcount_edge_connection_n_read(exitconn),
+                     privcount_edge_connection_n_written(exitconn),
                      created_str,
                      now_str,
                      host_str,
@@ -6543,12 +6671,12 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
                      "650 PRIVCOUNT_CIRCUIT_ENDED %" PRIu64 " %" PRIu32
                      " %" PRIu64 " %" PRIu64 " %" PRIu64 " %" PRIu64
                      " %s %s %s %d %s %d\r\n",
-                     orcirc->p_chan ? orcirc->p_chan->global_identifier : 0,
-                     orcirc->p_circ_id,
-                     orcirc->privcount_n_cells_in,
-                     orcirc->privcount_n_cells_out,
-                     orcirc->privcount_n_read,
-                     orcirc->privcount_n_written,
+                     privcount_or_circuit_p_chan_global_identifier(orcirc),
+                     privcount_or_circuit_p_circ_id(orcirc),
+                     privcount_or_circuit_n_cells_in(orcirc),
+                     privcount_or_circuit_n_cells_out(orcirc),
+                     privcount_or_circuit_n_read(orcirc),
+                     privcount_or_circuit_n_written(orcirc),
                      created_str,
                      now_str,
                      p_addr,
@@ -6594,7 +6722,7 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
                      "650 PRIVCOUNT_CONNECTION_ENDED %" PRIu64
                      " %s %s %s %d\r\n",
-                     chan ? chan->global_identifier : 0,
+                     privcount_or_connection_chan_global_identifier(orconn),
                      created_str,
                      now_str,
                      addr,
