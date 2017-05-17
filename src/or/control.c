@@ -6493,6 +6493,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 
   tor_free(now_str);
   tor_free(created_str);
+  tor_free(host_str);
+  tor_free(addr_str);
 }
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
