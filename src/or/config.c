@@ -2043,6 +2043,23 @@ options_act(const or_options_t *old_options)
     }
   }
 
+  /* If we just enabled PrivCount, keep a timestamp. */
+  int privcount_was_enabled = old_options && old_options->EnablePrivCount;
+  if (options->EnablePrivCount && !privcount_was_enabled) {
+    tor_gettimeofday(&options->enable_privcount_timestamp);
+  }
+  /* If PrivCount is disabled, set the timestamp to a constant in the far
+   * future. This is a precaution, because the timestamp shouldn't be used if
+   * EnablePrivCount is 0. We want to do this even if PrivCount is disabled on
+   * startup. */
+  if (!options->EnablePrivCount) {
+    /* On platforms with 32-bit longs, this will cause issues around 2037. */
+    tor_assert(sizeof(options->enable_privcount_timestamp.tv_sec) >=
+               sizeof(long));
+    options->enable_privcount_timestamp.tv_sec = LONG_MAX;
+    options->enable_privcount_timestamp.tv_usec = 999999;
+  }
+
   return 0;
 }
 

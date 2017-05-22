@@ -4445,10 +4445,15 @@ typedef struct {
   int PathBiasScaleUseThreshold;
   /** @} */
 
-  /** PrivCount command line options
-  * EnablePrivCount set to 1 enables logging to PrivCount data collector
-  */
+  /** PrivCount
+   * EnablePrivCount 1 enables PrivCount events over the control port to the
+   * data collector (each event must be enabled using SETEVENTS). It also
+   * counts bytes and cells for the PrivCount events. */
   int EnablePrivCount;
+  /* What time was PrivCount last enabled?
+   * Used to filter out events from objects that were created before PrivCount
+   * was enabled. */
+  struct timeval enable_privcount_timestamp;
 
   int IPv6Exit; /**< Do we support exiting to IPv6 addresses? */
 
