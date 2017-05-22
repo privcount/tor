@@ -6484,6 +6484,23 @@ privcount_or_connection_chan_global_identifier(const or_connection_t *orconn)
   }
 }
 
+/* Is start_tv strictly greater than the last time that PrivCount was enabled?
+ * If it is, we should send this event, if not, we should ignore it.
+ *
+ * Some events in the exact microsecond (or larger OS timer granularity) that
+ * PrivCount was enabled might be skipped. That's ok, and it's better than
+ * including some events that started earlier in that microsecond, that might
+ * have incomplete cell or byte counts.
+ * This doesn't use monotonic time, perhaps it should. */
+static int
+privcount_was_enabled_before(const struct timeval *event_start_tv)
+{
+  /* On some platforms, timercmp can't do ==, <=, and >= */
+  return timercmp(event_start_tv,
+                  (&(get_options()->enable_privcount_timestamp)),
+                  >);
+}
+
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
@@ -6504,6 +6521,13 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 
   /* Filter out directory data (at the directory) and non-exit connections */
   if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
+    return;
+  }
+
+  /* Filter out DNS events for circuits or exit connections that started
+   * before this collection round */
+  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv) ||
+      !privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
     return;
   }
 
@@ -6553,6 +6577,13 @@ control_event_privcount_stream_bytes_transferred(
     return;
   }
 
+  /* Filter out bandwidth events for circuits or exit connections that started
+   * before this collection round */
+  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv) ||
+      !privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
+    return;
+  }
+
   /* Get the time as early as possible, but after we're sure we want it */
   char *now_str = privcount_timeval_now_to_str_dup();
 
@@ -6591,6 +6622,13 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
    * This means we won't get hidden-service requests, directory requests, or
    * any non-exit connections */
   if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+    return;
+  }
+
+  /* Filter out stream events for circuits or exit connections that started
+   * before this collection round */
+  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv) ||
+      !privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
     return;
   }
 
@@ -6650,6 +6688,12 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
     return;
   }
 
+  /* Filter out circuit events for circuits that started before this
+   * collection round */
+  if (!privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
+    return;
+  }
+
   /* Get the time as early as possible, but after we're sure we want it */
   char *now_str = privcount_timeval_now_to_str_dup();
   /* the difference between timestamp_created and timestamp_began only
@@ -6705,6 +6749,12 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
 
   /* Filter out connection overhead (directory circuits at directories). */
   if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
+    return;
+  }
+
+  /* Filter out connection events for connections that started before this
+   * collection round */
+  if (!privcount_was_enabled_before(&orconn->base_.timestamp_created_tv)) {
     return;
   }
 
