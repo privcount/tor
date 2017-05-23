@@ -243,6 +243,7 @@ void smartlist_add_vasprintf(struct smartlist_t *sl, const char *pattern,
 /* Time helpers */
 long tv_udiff(const struct timeval *start, const struct timeval *end);
 long tv_mdiff(const struct timeval *start, const struct timeval *end);
+int64_t tv_secdiff(const struct timeval *start, const struct timeval *end);
 int64_t tv_to_msec(const struct timeval *tv);
 int tor_timegm(const struct tm *tm, time_t *time_out);
 #define RFC1123_TIME_LEN 29

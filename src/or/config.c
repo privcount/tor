@@ -2053,17 +2053,69 @@ options_act(const or_options_t *old_options)
   }
 
   int privcount_was_enabled = old_options && old_options->EnablePrivCount;
+  /* If we just enabled PrivCount, set the timestamp. */
   if (options->EnablePrivCount && !privcount_was_enabled) {
+    /* Set the start time */
     tor_gettimeofday(&options->enable_privcount_timestamp);
+
+    /* Report the start time and version */
+    char *start_str = privcount_timeval_to_iso_epoch_str_dup(
+                                        &options->enable_privcount_timestamp);
+    log_notice(LD_CONFIG,
+               "PrivCount %s (Tor %s) enabled at %s.",
+               privcount_get_version_str(), get_version(), start_str);
+    tor_free(start_str);
   }
-  /* If PrivCount is disabled, set the timestamp to a constant in the far
-   * future. This is a precaution, because the timestamp shouldn't be used if
-   * EnablePrivCount is 0. We want to do this even if PrivCount is disabled on
-   * startup. */
+
+  /* Whenever the options change and PrivCount is disabled, clear the
+   * timestamp. (This is safe but redundant.) */
   if (!options->EnablePrivCount) {
-    /* On platforms with 32-bit longs, this will cause issues around 2037. */
+    /* If we just disabled PrivCount, log a message. */
+    if (privcount_was_enabled) {
+      /* Log a summary of the round time */
+      struct timeval end_tv;
+      tor_gettimeofday(&end_tv);
+      char *end_str = privcount_timeval_to_iso_epoch_str_dup(&end_tv);
+
+      char *start_str = privcount_timeval_to_iso_epoch_str_dup(
+                                        &options->enable_privcount_timestamp);
+
+      /* We ignore microseconds here. */
+      int64_t sdiff = tv_secdiff(&options->enable_privcount_timestamp, &end_tv);
+      char elapsed_str[64];
+      int rv = 0;
+      /* Set a default placeholder */
+      rv = tor_snprintf(elapsed_str, sizeof(elapsed_str), "(out of range)");
+
+      /* format_time_interval doesn't work outside this range */
+      if (sdiff >= -LONG_MAX
+#if SIZEOF_LONG < 8
+          /* Some compilers warn when this comparison is always true */
+          && sdiff <= LONG_MAX
+#endif
+          ) {
+        rv = format_time_interval(elapsed_str, sizeof(elapsed_str), sdiff);
+      }
+
+      log_notice(LD_CONFIG,
+                 "PrivCount %s (Tor %s) disabled at %s, enabled at %s, "
+                 "elapsed time %s.",
+                 privcount_get_version_str(), get_version(),
+                 end_str, start_str,
+                 rv >= 0 ? elapsed_str : "(formatting error)");
+      tor_free(end_str);
+      tor_free(start_str);
+    }
+
+    /* If PrivCount is disabled, set the timestamp to a constant in the far
+     * future. This is a precaution, because the timestamp shouldn't be used if
+     * EnablePrivCount is 0. We want to do this even if PrivCount is disabled on
+     * startup. */
+    /* Check that tv_sec will take a long. */
     tor_assert(sizeof(options->enable_privcount_timestamp.tv_sec) >=
                sizeof(long));
+    /* On platforms with 32-bit longs, using LONG_MAX will cause issues around
+     * 2038. */
     options->enable_privcount_timestamp.tv_sec = LONG_MAX;
     options->enable_privcount_timestamp.tv_usec = 999999;
   }
