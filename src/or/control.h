@@ -166,6 +166,10 @@ int privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
 
 uint64_t privcount_add_saturating(uint64_t a, uint64_t b);
 
+char *privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv);
+
+const char *privcount_get_version_str(void);
+
 void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
                                           const or_circuit_t *orcirc);
 void control_event_privcount_stream_bytes_transferred(

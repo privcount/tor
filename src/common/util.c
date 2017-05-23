@@ -1441,6 +1441,13 @@ tv_secdiff_impl(const struct timeval *start, const struct timeval *end)
   return e - s;
 }
 
+/* A minimally intrusive way of accessing tv_secdiff_impl(). */
+int64_t
+tv_secdiff(const struct timeval *start, const struct timeval *end)
+{
+  return tv_secdiff_impl(start, end);
+}
+
 /** Return the number of microseconds elapsed between *start and *end.
  * Returns LONG_MAX on overflow and underflow.
  */

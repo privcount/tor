@@ -1671,6 +1671,8 @@ getinfo_helper_misc(control_connection_t *conn, const char *question,
   (void) conn;
   if (!strcmp(question, "version")) {
     *answer = tor_strdup(get_version());
+  } else if (!strcmp(question, "privcount-version")) {
+    *answer = tor_strdup(privcount_get_version_str());
   } else if (!strcmp(question, "bw-event-cache")) {
     *answer = get_bw_samples();
   } else if (!strcmp(question, "config-file")) {
@@ -2925,6 +2927,8 @@ typedef struct getinfo_item_t {
  * to answer them. */
 static const getinfo_item_t getinfo_items[] = {
   ITEM("version", misc, "The current version of Tor."),
+  ITEM("privcount-version", misc,
+       "The current version of the PrivCount Tor patch."),
   ITEM("bw-event-cache", misc, "Cached BW events for a short interval."),
   ITEM("config-file", misc, "Current location of the \"torrc\" file."),
   ITEM("config-defaults-file", misc, "Current location of the defaults file."),
@@ -5817,6 +5821,9 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
   return 0;
 }
 
+/* PrivCount macros */
+#define PRIVCOUNT_VERSION_STRING "1.0.0"
+
 /* PrivCount static declarations */
 static int privcount_is_client(const channel_t *chan);
 
@@ -6332,28 +6339,55 @@ privcount_conn_host_to_str_dup(const edge_connection_t *exitconn)
   }
 }
 
-/* Return a newly allocated string containing a formatted verion of tv.
+/* Return a newly allocated string representing tv in decimal seconds since
+ * the epoch.
  * tv must not be NULL.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_to_str_dup(const struct timeval *tv)
+privcount_timeval_to_epoch_str_dup(const struct timeval *tv)
 {
   tor_assert(tv);
 
   char *str = NULL;
+  tor_assert(sizeof(long) >= sizeof(tv->tv_sec));
+  tor_assert(sizeof(long) >= sizeof(tv->tv_usec));
   tor_asprintf(&str, "%ld.%06ld", (long)tv->tv_sec, (long)tv->tv_usec);
   return str;
 }
 
-/* Return a newly allocated string containing a formatted verion of
- * the current time.
+/* Return a newly allocated string representing the current time in decimal
+ * seconds since the epoch.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_now_to_str_dup(void)
+privcount_timeval_now_to_epoch_str_dup(void)
 {
   struct timeval now;
   tor_gettimeofday(&now);
-  return privcount_timeval_to_str_dup(&now);
+  return privcount_timeval_to_epoch_str_dup(&now);
+}
+
+/* Return a newly allocated string representing tv in ISO format (UTC) and
+ * decimal seconds since the epoch.
+ * tv must not be NULL.
+ * The returned string must be freed using tor_free(). */
+char *
+privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv)
+{
+  tor_assert(tv);
+
+  /* Three different memory management models! */
+
+  char iso_str[ISO_TIME_USEC_LEN+1];
+  format_iso_time_nospace_usec(iso_str, tv);
+
+  char *epoch_str = privcount_timeval_to_epoch_str_dup(tv);
+
+  char *str = NULL;
+  tor_asprintf(&str, "%s (%s)", iso_str, epoch_str);
+
+  tor_free(epoch_str);
+
+  return str;
 }
 
 /* Return orcirc->p_chan->global_identifier, or 0 if any pointer in the chain
@@ -6501,6 +6535,13 @@ privcount_was_enabled_before(const struct timeval *event_start_tv)
                   >);
 }
 
+/** Return a string representation of the version of the PrivCount patch. */
+const char *
+privcount_get_version_str(void)
+{
+  return PRIVCOUNT_VERSION_STRING;
+}
+
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
@@ -6532,7 +6573,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup();
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
 
   /* ChanID, CircID, StreamID, Address, Time */
@@ -6585,7 +6626,7 @@ control_event_privcount_stream_bytes_transferred(
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup();
 
   /* ChanID, CircID, StreamID, Direction, BW, Time */
   send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
@@ -6633,8 +6674,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_str_dup();
-  char *created_str = privcount_timeval_to_str_dup(
+  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *created_str = privcount_timeval_to_epoch_str_dup(
                                       &exitconn->base_.timestamp_created_tv);
 
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
@@ -6695,10 +6736,10 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup();
   /* the difference between timestamp_created and timestamp_began only
    * matters on clients */
-  char *created_str = privcount_timeval_to_str_dup(
+  char *created_str = privcount_timeval_to_epoch_str_dup(
                                             &orcirc->base_.timestamp_created);
 
   /* we already know this is not an origin circ since we have a or_circuit_t
@@ -6759,8 +6800,8 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_str_dup();
-  char *created_str = privcount_timeval_to_str_dup(
+  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *created_str = privcount_timeval_to_epoch_str_dup(
                                         &orconn->base_.timestamp_created_tv);
 
   const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
