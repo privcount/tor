@@ -2043,7 +2043,15 @@ options_act(const or_options_t *old_options)
     }
   }
 
-  /* If we just enabled PrivCount, keep a timestamp. */
+  /* Always transfer the timestamp from the old options to the new options,
+   * even if we're just about to modify it. */
+  if (old_options) {
+    options->enable_privcount_timestamp.tv_sec =
+      old_options->enable_privcount_timestamp.tv_sec;
+    options->enable_privcount_timestamp.tv_usec =
+      old_options->enable_privcount_timestamp.tv_usec;
+  }
+
   int privcount_was_enabled = old_options && old_options->EnablePrivCount;
   if (options->EnablePrivCount && !privcount_was_enabled) {
     tor_gettimeofday(&options->enable_privcount_timestamp);
