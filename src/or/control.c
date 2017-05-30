@@ -5868,11 +5868,6 @@ privcount_data_is_dir(const connection_t* conn, const circuit_t *circ)
   int conn_is_dir = privcount_connection_is_dir(conn);
   int circ_is_dir = privcount_circuit_is_dir(circ);
 
-  /* Make sure we're getting consistent results */
-  if (conn && circ) {
-    tor_assert_nonfatal(conn_is_dir == circ_is_dir);
-  }
-
   return conn_is_dir || circ_is_dir;
 }
 
