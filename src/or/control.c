@@ -6131,7 +6131,8 @@ privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
 {
   const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
 
-  if (!privcount_data_is_used(TO_CONN(exitconn), TO_CIRCUIT(oc))) {
+  if (!privcount_data_is_used(exitconn ? TO_CONN(exitconn) : NULL,
+                              oc ? TO_CIRCUIT(oc) : NULL)) {
     return 0;
   }
 
@@ -6198,10 +6199,12 @@ privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
                                       const or_circuit_t *orcirc)
 {
   /* DNS connections are never directory connections */
-  int is_dir = privcount_data_is_dir(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
+  int is_dir = privcount_data_is_dir(exitconn ? TO_CONN(exitconn) : NULL,
+                                     orcirc ? TO_CIRCUIT(orcirc) : NULL);
   tor_assert_nonfatal(!is_dir);
 
-  return privcount_data_is_used(TO_CONN(exitconn), TO_CIRCUIT(orcirc));
+  return privcount_data_is_used(exitconn ? TO_CONN(exitconn) : NULL,
+                                orcirc ? TO_CIRCUIT(orcirc) : NULL);
 }
 
 /* Is the remote end of chan a relay in our current consensus?
@@ -6653,10 +6656,15 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   const or_circuit_t* orcirc = privcount_get_const_or_circuit(exitconn,
                                                               NULL);
 
+  /* Ignore failed resolves, and other missing circuits */
+  if (!orcirc) {
+    return;
+  }
+
   /* Only send stream events for connections from exits to legitimate
    * client-bound destinations.
    * This means we won't get hidden-service requests, directory requests, or
-   * any non-exit connections */
+   * any non-exit connections, and we ignore failed resolves, as well. */
   if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
     return;
   }
