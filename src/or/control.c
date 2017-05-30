@@ -6519,17 +6519,24 @@ privcount_or_connection_chan_global_identifier(const or_connection_t *orconn)
 /* Is start_tv strictly greater than the last time that PrivCount was enabled?
  * If it is, we should send this event, if not, we should ignore it.
  *
+ * Uses options to retrieve the timestamp: take care when calling this when
+ * options are changing!
+ *
  * Some events in the exact microsecond (or larger OS timer granularity) that
  * PrivCount was enabled might be skipped. That's ok, and it's better than
  * including some events that started earlier in that microsecond, that might
  * have incomplete cell or byte counts.
  * This doesn't use monotonic time, perhaps it should. */
 static int
-privcount_was_enabled_before(const struct timeval *event_start_tv)
+privcount_was_enabled_before(const struct timeval *event_start_tv,
+                             const or_options_t* options)
 {
+  tor_assert(event_start_tv);
+  tor_assert(options);
+
   /* On some platforms, timercmp can't do ==, <=, and >= */
   return timercmp(event_start_tv,
-                  (&(get_options()->enable_privcount_timestamp)),
+                  (&(options->enable_privcount_timestamp)),
                   >);
 }
 
@@ -6565,8 +6572,11 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 
   /* Filter out DNS events for circuits or exit connections that started
    * before this collection round */
-  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv) ||
-      !privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
+  const or_options_t* options = get_options();
+  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv,
+                                    options) ||
+      !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+                                    options)) {
     return;
   }
 
@@ -6618,8 +6628,11 @@ control_event_privcount_stream_bytes_transferred(
 
   /* Filter out bandwidth events for circuits or exit connections that started
    * before this collection round */
-  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv) ||
-      !privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
+  const or_options_t* options = get_options();
+  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv,
+                                    options) ||
+      !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+                                    options)) {
     return;
   }
 
@@ -6671,8 +6684,11 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 
   /* Filter out stream events for circuits or exit connections that started
    * before this collection round */
-  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv) ||
-      !privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
+  const or_options_t* options = get_options();
+  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv,
+                                    options) ||
+      !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+                                    options)) {
     return;
   }
 
@@ -6734,7 +6750,8 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 
   /* Filter out circuit events for circuits that started before this
    * collection round */
-  if (!privcount_was_enabled_before(&orcirc->base_.timestamp_created)) {
+  if (!privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+                                    get_options())) {
     return;
   }
 
@@ -6798,7 +6815,8 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
 
   /* Filter out connection events for connections that started before this
    * collection round */
-  if (!privcount_was_enabled_before(&orconn->base_.timestamp_created_tv)) {
+  if (!privcount_was_enabled_before(&orconn->base_.timestamp_created_tv,
+                                    get_options())) {
     return;
   }
 
