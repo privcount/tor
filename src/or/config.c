@@ -2081,7 +2081,8 @@ options_act(const or_options_t *old_options)
                                         &options->enable_privcount_timestamp);
 
       /* We ignore microseconds here. */
-      int64_t sdiff = tv_secdiff(&options->enable_privcount_timestamp, &end_tv);
+      int64_t sdiff = tv_secdiff(&options->enable_privcount_timestamp,
+                                 &end_tv);
       char elapsed_str[64];
       int rv = 0;
       /* Set a default placeholder */
@@ -2108,9 +2109,9 @@ options_act(const or_options_t *old_options)
     }
 
     /* If PrivCount is disabled, set the timestamp to a constant in the far
-     * future. This is a precaution, because the timestamp shouldn't be used if
-     * EnablePrivCount is 0. We want to do this even if PrivCount is disabled on
-     * startup. */
+     * future. This is a precaution, because the timestamp shouldn't be used
+     * if EnablePrivCount is 0. We want to do this even if PrivCount is
+     * disabled on startup. */
     /* Check that tv_sec will take a long. */
     tor_assert(sizeof(options->enable_privcount_timestamp.tv_sec) >=
                sizeof(long));
