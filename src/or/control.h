@@ -165,6 +165,7 @@ int privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
                                           const or_circuit_t *orcirc);
 
 uint64_t privcount_add_saturating(uint64_t a, uint64_t b);
+int64_t privcount_check_range_i64(uint64_t input);
 
 char *privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv);
 
@@ -180,6 +181,20 @@ void control_event_privcount_stream_bytes_transferred(
 void control_event_privcount_stream_ended(const edge_connection_t *exitconn);
 void control_event_privcount_circuit_ended(or_circuit_t *orcirc);
 void control_event_privcount_connection_ended(const or_connection_t *orconn);
+/* Tagged events */
+void control_event_privcount_hsdir_cache_stored(
+                                      int hs_version_number,
+                                      int has_existing_cache_entry_flag,
+                                      int was_added_to_cache_flag,
+                                      const char *failure_reason_string,
+                                      ssize_t encoded_descriptor_byte_count,
+                                      const char *identifier_string,
+                                      int64_t revision_counter,
+                                      time_t descriptor_creation_timestamp,
+                                      int64_t descriptor_lifetime,
+                                      uint16_t supported_protocol_bitfield,
+                                      ssize_t intro_point_count,
+                                      ssize_t encoded_intro_point_byte_count);
 
 void control_free_all(void);
 
@@ -233,7 +248,11 @@ void control_free_all(void);
 #define EVENT_PRIVCOUNT_STREAM_ENDED                0x0026
 #define EVENT_PRIVCOUNT_CIRCUIT_ENDED               0x0027
 #define EVENT_PRIVCOUNT_CONNECTION_ENDED            0x0028
-#define EVENT_MAX_                    0x0028
+/* These events are in tagged format */
+/* These events are HSDir events */
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_STORED          0x0029
+
+#define EVENT_MAX_                                  0x0029
 
 /* sizeof(control_connection_t.event_mask) in bits, currently a uint64_t */
 #define EVENT_CAPACITY_               0x0040
