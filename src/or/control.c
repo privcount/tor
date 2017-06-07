@@ -6338,30 +6338,34 @@ privcount_conn_host_to_str_dup(const edge_connection_t *exitconn)
 }
 
 /* Return a newly allocated string representing tv in decimal seconds since
- * the epoch.
- * tv must not be NULL.
+ * the epoch. tv must not be NULL.
+ * Prepend prefix_string if it is not NULL.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_to_epoch_str_dup(const struct timeval *tv)
+privcount_timeval_to_epoch_str_dup(const struct timeval *tv,
+                                   const char *prefix_string)
 {
   tor_assert(tv);
 
   char *str = NULL;
   tor_assert(sizeof(long) >= sizeof(tv->tv_sec));
   tor_assert(sizeof(long) >= sizeof(tv->tv_usec));
-  tor_asprintf(&str, "%ld.%06ld", (long)tv->tv_sec, (long)tv->tv_usec);
+  tor_asprintf(&str, "%s%ld.%06ld",
+               prefix_string ? prefix_string : "",
+               (long)tv->tv_sec,
+               (long)tv->tv_usec);
   return str;
 }
 
 /* Return a newly allocated string representing the current time in decimal
- * seconds since the epoch.
+ * seconds since the epoch. Prepend prefix_string if it is not NULL.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_now_to_epoch_str_dup(void)
+privcount_timeval_now_to_epoch_str_dup(const char *prefix_string)
 {
   struct timeval now;
   tor_gettimeofday(&now);
-  return privcount_timeval_to_epoch_str_dup(&now);
+  return privcount_timeval_to_epoch_str_dup(&now, prefix_string);
 }
 
 /* Return a newly allocated string representing tv in ISO format (UTC) and
@@ -6378,7 +6382,7 @@ privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv)
   char iso_str[ISO_TIME_USEC_LEN+1];
   format_iso_time_nospace_usec(iso_str, tv);
 
-  char *epoch_str = privcount_timeval_to_epoch_str_dup(tv);
+  char *epoch_str = privcount_timeval_to_epoch_str_dup(tv, NULL);
 
   char *str = NULL;
   tor_asprintf(&str, "%s (%s)", iso_str, epoch_str);
@@ -6581,7 +6585,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
 
   /* ChanID, CircID, StreamID, Address, Time */
@@ -6637,7 +6641,7 @@ control_event_privcount_stream_bytes_transferred(
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
 
   /* ChanID, CircID, StreamID, Direction, BW, Time */
   send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
@@ -6693,9 +6697,10 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                      &exitconn->base_.timestamp_created_tv);
+                                      &exitconn->base_.timestamp_created_tv,
+                                      NULL);
 
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
   char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
@@ -6756,11 +6761,12 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   /* the difference between timestamp_created and timestamp_began only
    * matters on clients */
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                            &orcirc->base_.timestamp_created);
+                                            &orcirc->base_.timestamp_created,
+                                            NULL);
 
   /* we already know this is not an origin circ since we have a or_circuit_t
    * struct. But orcirc->p_chan can still be NULL here. */
@@ -6821,9 +6827,10 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                        &orconn->base_.timestamp_created_tv);
+                                        &orconn->base_.timestamp_created_tv,
+                                        NULL);
 
   const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
   int is_client = privcount_is_client(chan);
