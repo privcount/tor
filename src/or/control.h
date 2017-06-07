@@ -170,6 +170,7 @@ char *privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv);
 
 const char *privcount_get_version_str(void);
 
+/* Positional events */
 void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
                                           const or_circuit_t *orcirc);
 void control_event_privcount_stream_bytes_transferred(
@@ -224,7 +225,10 @@ void control_free_all(void);
 #define EVENT_HS_DESC                 0x0021
 #define EVENT_HS_DESC_CONTENT         0x0022
 #define EVENT_NETWORK_LIVENESS        0x0023
+/* These events are in positional format */
+/* These events are exit events */
 #define EVENT_PRIVCOUNT_DNS_RESOLVED                0x0024
+/* These events are entry, middle, exit, intro, and rend events */
 #define EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED    0x0025
 #define EVENT_PRIVCOUNT_STREAM_ENDED                0x0026
 #define EVENT_PRIVCOUNT_CIRCUIT_ENDED               0x0027

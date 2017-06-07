@@ -1166,7 +1166,10 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_HS_DESC, "HS_DESC" },
   { EVENT_HS_DESC_CONTENT, "HS_DESC_CONTENT" },
   { EVENT_NETWORK_LIVENESS, "NETWORK_LIVENESS" },
+  /* These events are in positional format */
+  /* These events are exit events */
   { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
+  /* These events are entry, middle, exit, intro, and rend events */
   { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
     "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
   { EVENT_PRIVCOUNT_STREAM_ENDED, "PRIVCOUNT_STREAM_ENDED" },
@@ -6552,6 +6555,7 @@ privcount_get_version_str(void)
 }
 
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
+ * This event uses positional fields: order is important.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
  * See PrivCount bug 184 for details.
@@ -6603,6 +6607,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 
 /* Send a PrivCount stream data transfer event triggered on exitconn and
  * orcirc with amt bytes.
+ * This event uses positional fields: order is important.
  * If is_outbound is true, the data was written to a remote peer, otherwise,
  * the data was read from a remote peer.
  * exitconn must not be NULL.
@@ -6658,6 +6663,7 @@ control_event_privcount_stream_bytes_transferred(
 }
 
 /* Send a PrivCount stream end event triggered on exitconn.
+ * This event uses positional fields: order is important.
  * exitconn must not be NULL. */
 void
 control_event_privcount_stream_ended(const edge_connection_t *exitconn)
@@ -6730,6 +6736,7 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
  * entry, exit, or middle connection.
+ * This event uses positional fields: order is important.
  * Sets the privcount_event_emitted flag in orcirc to ensure that each
  * circuit only emits one event.
  * orcirc must not be NULL. */
@@ -6802,6 +6809,7 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 }
 
 /* Send a PrivCount connection end event triggered on orconn.
+ * This event uses positional fields: order is important.
  * orconn must not be NULL. */
 void
 control_event_privcount_connection_ended(const or_connection_t *orconn)
