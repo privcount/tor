@@ -18,6 +18,8 @@
 #include "networkstatus.h"
 #include "rendcache.h"
 
+#include "control.h"
+
 /* Directory descriptor cache. Map indexed by blinded key. */
 static digest256map_t *hs_cache_v3_dir;
 
@@ -115,10 +117,27 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
 
   tor_assert(desc);
 
+  /* PrivCount variables */
+  const or_options_t *options = get_options();
+  int has_existing_cache_entry = 0;
+  size_t encoded_size = 0;
+
+  if (options->EnablePrivCount) {
+    /* Find the size of the descriptor */
+    tor_assert(desc->plaintext_data->encrypted_blob_size <= SSIZE_MAX);
+    encoded_size = strlen(desc->encoded_desc);
+    tor_assert(encoded_size <= SSIZE_MAX);
+  }
+
   /* Verify if we have an entry in the cache for that key and if yes, check
    * if we should replace it? */
   cache_entry = lookup_v3_desc_as_dir(desc->key);
   if (cache_entry != NULL) {
+
+    if (options->EnablePrivCount) {
+      has_existing_cache_entry = 1;
+    }
+
     /* Only replace descriptor if revision-counter is greater than the one
      * in our cache */
     if (cache_entry->plaintext_data->revision_counter >=
@@ -126,6 +145,37 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
       log_info(LD_REND, "Descriptor revision counter in our cache is "
                         "greater or equal than the one we received. "
                         "Rejecting!");
+
+      if (options->EnablePrivCount) {
+        /* A list of fields in the v3 descriptor is available at:
+         * https://gitweb.torproject.org/torspec.git/tree/proposals/
+         * 224-rend-spec-ng.txt#n927
+         *
+         * The v3 onion address is not available in the descriptor.
+         * Use blinded_pubkey_base64 instead: there is one blinded public key
+         * per service address, per day (or hsdir-interval consensus
+         * parameter).
+         * The creation time for v3 is set by the HSDir when it parses the
+         * descriptor, so we ignore it, because it is almost exactly the same
+         * as the EventTimestamp.
+         * The list of introduction points is encrypted in v3, so we can't
+         * count them. */
+        control_event_privcount_hsdir_cache_stored(
+                                    HS_VERSION_THREE,
+                                    /* cache info */
+                                    has_existing_cache_entry,
+                                    0, /* not added to cache */
+                                    "obsolete",
+                                    /* descriptor info */
+                                    NULL, /* don't know desc id */
+                                    NULL, /* not v2 */
+                                    NULL, /* not v2 */
+                                    desc,
+                                    encoded_size,
+                                    desc->plaintext_data->encrypted_blob_size
+                                    );
+      }
+
       goto err;
     }
     /* We now know that the descriptor we just received is a new one so
@@ -145,6 +195,25 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
   rend_cache_increment_allocation(cache_get_entry_size(desc));
 
   /* XXX: Update HS statistics. We should have specific stats for v3. */
+
+  if (options->EnablePrivCount) {
+    control_event_privcount_hsdir_cache_stored(
+                                    HS_VERSION_THREE,
+                                    /* cache info */
+                                    has_existing_cache_entry,
+                                    1, /* added to cache */
+                                    (has_existing_cache_entry
+                                     ? "updated"
+                                     : "new"),
+                                    /* descriptor info */
+                                    NULL, /* don't know desc id */
+                                    NULL, /* not v2 */
+                                    NULL, /* not v2 */
+                                    desc,
+                                    encoded_size,
+                                    desc->plaintext_data->encrypted_blob_size
+                                    );
+  }
 
   return 0;
 
@@ -252,6 +321,26 @@ hs_cache_store_as_dir(const char *desc)
    * is unparseable which in this case a log message will be triggered. */
   dir_desc = cache_dir_desc_new(desc);
   if (dir_desc == NULL) {
+
+    if (get_options()->EnablePrivCount) {
+      size_t encoded_size = strlen(desc);
+      tor_assert(encoded_size <= SSIZE_MAX);
+      control_event_privcount_hsdir_cache_stored(
+                                    HS_VERSION_THREE,
+                                    /* cache info */
+                                    -1, /* don't know if was cached */
+                                    0, /* not added to cache */
+                                    "unparseable",
+                                    /* descriptor info */
+                                    NULL, /* don't know desc id */
+                                    NULL, /* not v2 */
+                                    NULL, /* not v2 */
+                                    NULL, /* don't know v3 */
+                                    encoded_size,
+                                    -1 /* no intro point size */
+                                    );
+    }
+
     goto err;
   }
 
