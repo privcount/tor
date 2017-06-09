@@ -3094,14 +3094,21 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
   char *address = NULL;
   uint16_t port = 0;
   or_circuit_t *or_circ = NULL;
+  origin_circuit_t *origin_circ = NULL;
+  crypt_path_t *layer_hint = NULL;
   const or_options_t *options = get_options();
   begin_cell_t bcell;
   int rv;
   uint8_t end_reason=0;
 
   assert_circuit_ok(circ);
-  if (!CIRCUIT_IS_ORIGIN(circ))
+  if (!CIRCUIT_IS_ORIGIN(circ)) {
     or_circ = TO_OR_CIRCUIT(circ);
+  } else {
+    tor_assert(circ->purpose == CIRCUIT_PURPOSE_S_REND_JOINED);
+    origin_circ = TO_ORIGIN_CIRCUIT(circ);
+    layer_hint = origin_circ->cpath->prev;
+  }
 
   relay_header_unpack(&rh, cell->payload);
   if (rh.length > RELAY_PAYLOAD_SIZE)
@@ -3126,7 +3133,7 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
     return -END_CIRC_REASON_TORPROTOCOL;
   } else if (rv == -1) {
     tor_free(bcell.address);
-    relay_send_end_cell_from_edge(rh.stream_id, circ, end_reason, NULL);
+    relay_send_end_cell_from_edge(rh.stream_id, circ, end_reason, layer_hint);
     return 0;
   }
 
@@ -3163,7 +3170,7 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
     if (!directory_permits_begindir_requests(options) ||
         circ->purpose != CIRCUIT_PURPOSE_OR) {
       relay_send_end_cell_from_edge(rh.stream_id, circ,
-                                    END_STREAM_REASON_NOTDIRECTORY, NULL);
+                                  END_STREAM_REASON_NOTDIRECTORY, layer_hint);
       return 0;
     }
     /* Make sure to get the 'real' address of the previous hop: the
@@ -3180,7 +3187,7 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
   } else {
     log_warn(LD_BUG, "Got an unexpected command %d", (int)rh.command);
     relay_send_end_cell_from_edge(rh.stream_id, circ,
-                                  END_STREAM_REASON_INTERNAL, NULL);
+                                  END_STREAM_REASON_INTERNAL, layer_hint);
     return 0;
   }
 
@@ -3191,7 +3198,7 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
     if (bcell.flags & BEGIN_FLAG_IPV4_NOT_OK) {
       tor_free(address);
       relay_send_end_cell_from_edge(rh.stream_id, circ,
-                                    END_STREAM_REASON_EXITPOLICY, NULL);
+                                    END_STREAM_REASON_EXITPOLICY, layer_hint);
       return 0;
     }
   }
@@ -3214,7 +3221,7 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
   n_stream->deliver_window = STREAMWINDOW_START;
 
   if (circ->purpose == CIRCUIT_PURPOSE_S_REND_JOINED) {
-    origin_circuit_t *origin_circ = TO_ORIGIN_CIRCUIT(circ);
+    tor_assert(origin_circ);
     log_info(LD_REND,"begin is for rendezvous. configuring stream.");
     n_stream->base_.address = tor_strdup("(rendezvous)");
     n_stream->base_.state = EXIT_CONN_STATE_CONNECTING;
@@ -3234,7 +3241,7 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
        * the hidden service. */
       relay_send_end_cell_from_edge(rh.stream_id, circ,
                                     END_STREAM_REASON_DONE,
-                                    origin_circ->cpath->prev);
+                                    layer_hint);
       connection_free(TO_CONN(n_stream));
       tor_free(address);
 
