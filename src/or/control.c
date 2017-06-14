@@ -1166,12 +1166,18 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_HS_DESC, "HS_DESC" },
   { EVENT_HS_DESC_CONTENT, "HS_DESC_CONTENT" },
   { EVENT_NETWORK_LIVENESS, "NETWORK_LIVENESS" },
+  /* These events are in positional format */
+  /* These events are exit events */
   { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
+  /* These events are entry, middle, exit, intro, and rend events */
   { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
     "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
   { EVENT_PRIVCOUNT_STREAM_ENDED, "PRIVCOUNT_STREAM_ENDED" },
   { EVENT_PRIVCOUNT_CIRCUIT_ENDED, "PRIVCOUNT_CIRCUIT_ENDED" },
   { EVENT_PRIVCOUNT_CONNECTION_ENDED, "PRIVCOUNT_CONNECTION_ENDED" },
+  /* These events are in tagged format */
+  /* These events are HSDir events */
+  { EVENT_PRIVCOUNT_HSDIR_CACHE_STORED, "PRIVCOUNT_HSDIR_CACHE_STORED" },
   { 0, NULL },
 };
 
@@ -6276,6 +6282,19 @@ privcount_add_saturating(uint64_t a, uint64_t b)
   }
 }
 
+/* Check that input fits inside a signed 64-bit integer.
+ * If input is greater than INT64_MAX, log a warning and return INT64_MAX.
+ * Otherwise, return input. */
+int64_t
+privcount_check_range_i64(uint64_t input)
+{
+  if (BUG(input > INT64_MAX)) {
+    return INT64_MAX;
+  } else {
+    return input;
+  }
+}
+
 #define NO_CHANNEL_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_HOST "no-host"
@@ -6338,30 +6357,34 @@ privcount_conn_host_to_str_dup(const edge_connection_t *exitconn)
 }
 
 /* Return a newly allocated string representing tv in decimal seconds since
- * the epoch.
- * tv must not be NULL.
+ * the epoch. tv must not be NULL.
+ * Prepend prefix_string if it is not NULL.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_to_epoch_str_dup(const struct timeval *tv)
+privcount_timeval_to_epoch_str_dup(const struct timeval *tv,
+                                   const char *prefix_string)
 {
   tor_assert(tv);
 
   char *str = NULL;
   tor_assert(sizeof(long) >= sizeof(tv->tv_sec));
   tor_assert(sizeof(long) >= sizeof(tv->tv_usec));
-  tor_asprintf(&str, "%ld.%06ld", (long)tv->tv_sec, (long)tv->tv_usec);
+  tor_asprintf(&str, "%s%ld.%06ld",
+               prefix_string ? prefix_string : "",
+               (long)tv->tv_sec,
+               (long)tv->tv_usec);
   return str;
 }
 
 /* Return a newly allocated string representing the current time in decimal
- * seconds since the epoch.
+ * seconds since the epoch. Prepend prefix_string if it is not NULL.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_now_to_epoch_str_dup(void)
+privcount_timeval_now_to_epoch_str_dup(const char *prefix_string)
 {
   struct timeval now;
   tor_gettimeofday(&now);
-  return privcount_timeval_to_epoch_str_dup(&now);
+  return privcount_timeval_to_epoch_str_dup(&now, prefix_string);
 }
 
 /* Return a newly allocated string representing tv in ISO format (UTC) and
@@ -6378,7 +6401,7 @@ privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv)
   char iso_str[ISO_TIME_USEC_LEN+1];
   format_iso_time_nospace_usec(iso_str, tv);
 
-  char *epoch_str = privcount_timeval_to_epoch_str_dup(tv);
+  char *epoch_str = privcount_timeval_to_epoch_str_dup(tv, NULL);
 
   char *str = NULL;
   tor_asprintf(&str, "%s (%s)", iso_str, epoch_str);
@@ -6547,7 +6570,29 @@ privcount_get_version_str(void)
   return PRIVCOUNT_VERSION_STRING;
 }
 
+/* If str contains chr, set the first chr to '\0'. */
+static void
+privcount_cleanse_str(char *str, char chr)
+{
+  char *bad_char = strchr(str, chr);
+  if (bad_char) {
+    *bad_char = '\0';
+  }
+}
+
+/* If str contains spaces or equals signs, set the first one to '\0'.
+ * Returns a newly allocated string, which must be freed using tor_free(). */
+static char *
+privcount_cleanse_tagged_str_dup(const char *str)
+{
+  char *new_str = tor_strdup(str);
+  privcount_cleanse_str(new_str, '=');
+  privcount_cleanse_str(new_str, ' ');
+  return new_str;
+}
+
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
+ * This event uses positional fields: order is important.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
  * See PrivCount bug 184 for details.
@@ -6581,7 +6626,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
 
   /* ChanID, CircID, StreamID, Address, Time */
@@ -6599,6 +6644,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 
 /* Send a PrivCount stream data transfer event triggered on exitconn and
  * orcirc with amt bytes.
+ * This event uses positional fields: order is important.
  * If is_outbound is true, the data was written to a remote peer, otherwise,
  * the data was read from a remote peer.
  * exitconn must not be NULL.
@@ -6637,7 +6683,7 @@ control_event_privcount_stream_bytes_transferred(
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
 
   /* ChanID, CircID, StreamID, Direction, BW, Time */
   send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
@@ -6654,6 +6700,7 @@ control_event_privcount_stream_bytes_transferred(
 }
 
 /* Send a PrivCount stream end event triggered on exitconn.
+ * This event uses positional fields: order is important.
  * exitconn must not be NULL. */
 void
 control_event_privcount_stream_ended(const edge_connection_t *exitconn)
@@ -6693,9 +6740,10 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                      &exitconn->base_.timestamp_created_tv);
+                                      &exitconn->base_.timestamp_created_tv,
+                                      NULL);
 
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
   char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
@@ -6725,6 +6773,7 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
  * entry, exit, or middle connection.
+ * This event uses positional fields: order is important.
  * Sets the privcount_event_emitted flag in orcirc to ensure that each
  * circuit only emits one event.
  * orcirc must not be NULL. */
@@ -6756,11 +6805,12 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   /* the difference between timestamp_created and timestamp_began only
    * matters on clients */
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                            &orcirc->base_.timestamp_created);
+                                            &orcirc->base_.timestamp_created,
+                                            NULL);
 
   /* we already know this is not an origin circ since we have a or_circuit_t
    * struct. But orcirc->p_chan can still be NULL here. */
@@ -6796,6 +6846,7 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 }
 
 /* Send a PrivCount connection end event triggered on orconn.
+ * This event uses positional fields: order is important.
  * orconn must not be NULL. */
 void
 control_event_privcount_connection_ended(const or_connection_t *orconn)
@@ -6821,9 +6872,10 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                        &orconn->base_.timestamp_created_tv);
+                                        &orconn->base_.timestamp_created_tv,
+                                        NULL);
 
   const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
   int is_client = privcount_is_client(chan);
@@ -6843,6 +6895,129 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   tor_free(now_str);
   tor_free(created_str);
   tor_free(addr);
+}
+
+/* Send a PrivCount HSDir hidden service descriptor cache storage event using
+ * the supplied arguments.
+ * This event uses tagged parameters: each field is preceded by 'Name='.
+ * Order is unimportant. Unknown fields are left out.
+ * Signed types use -1 for unknown, except for hs_version_number, which must
+ * be either 2 or 3.
+ * Strings use NULL for unknown or not applicable. Strings must not contain
+ * spaces or equals signs. (If they do, the string is truncated at the first
+ * one.)
+ * protocol_bitfield uses 0 for unknown. */
+void
+control_event_privcount_hsdir_cache_stored(
+                                      int hs_version_number,
+                                      int has_existing_cache_entry_flag,
+                                      int was_added_to_cache_flag,
+                                      const char *failure_reason_string,
+                                      ssize_t encoded_descriptor_byte_count,
+                                      const char *identifier_string,
+                                      int64_t revision_counter,
+                                      time_t descriptor_creation_timestamp,
+                                      int64_t descriptor_lifetime,
+                                      uint16_t supported_protocol_bitfield,
+                                      ssize_t intro_point_count,
+                                      ssize_t encoded_intro_point_byte_count)
+{
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_HSDIR_CACHE_STORED)) {
+    return;
+  }
+
+  /* We don't know how to handle other HS versions */
+  tor_assert(hs_version_number == 2 || hs_version_number == 3);
+
+  /* We have no way to find a circuit id for this upload, or filter out
+   * uploads that started before this collection round, but that's ok, because
+   * uploading a descriptor should be fast. */
+
+  /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* Now process each field.
+   * Try to keep related fields together.
+   * Field order is not guaranteed: these fields can be re-ordered as needed.
+   * But it will annoy parsers that mistakenly depend on event order. */
+  smartlist_add_asprintf(fields, "HSVersionNumber=%d",
+                         hs_version_number);
+
+  if (supported_protocol_bitfield != 0) {
+    smartlist_add_asprintf(fields, "SupportedProtocolBitfield=0x%" PRIx16,
+                           supported_protocol_bitfield);
+  }
+
+  if (has_existing_cache_entry_flag >= 0) {
+    smartlist_add_asprintf(fields, "HasExistingCacheEntryFlag=%d",
+                           has_existing_cache_entry_flag);
+  }
+
+  if (was_added_to_cache_flag >= 0) {
+    smartlist_add_asprintf(fields, "WasAddedToCacheFlag=%d",
+                           was_added_to_cache_flag);
+  }
+
+  if (failure_reason_string) {
+    char *clean_str = privcount_cleanse_tagged_str_dup(failure_reason_string);
+    smartlist_add_asprintf(fields, "FailureReasonString=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  if (identifier_string) {
+    char *clean_str = privcount_cleanse_tagged_str_dup(identifier_string);
+    smartlist_add_asprintf(fields, "IdentifierString=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  if (revision_counter >= 0) {
+    smartlist_add_asprintf(fields, "RevisionCounter=%" PRIi64,
+                           revision_counter);
+  }
+
+  if (descriptor_creation_timestamp >= 0) {
+    smartlist_add_asprintf(fields, "DescriptorCreationTimestamp=%" PRIi64,
+                           (int64_t)descriptor_creation_timestamp);
+  }
+
+  smartlist_add(fields,
+                privcount_timeval_now_to_epoch_str_dup("EventTime="));
+
+  if (descriptor_lifetime >= 0) {
+    smartlist_add_asprintf(fields, "DescriptorLifetime=%" PRIi64,
+                           descriptor_lifetime);
+  }
+
+  if (encoded_descriptor_byte_count >= 0) {
+    smartlist_add_asprintf(fields, "EncodedDescriptorByteCount=%zd",
+                           encoded_descriptor_byte_count);
+  }
+
+  if (intro_point_count >= 0) {
+    smartlist_add_asprintf(fields, "IntroPointCount=%zd",
+                           intro_point_count);
+  }
+
+  if (encoded_intro_point_byte_count >= 0) {
+    smartlist_add_asprintf(fields, "EncodedIntroPointByteCount=%zd",
+                           encoded_intro_point_byte_count);
+  }
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory*/
+  tor_assert(len > 0);
+
+  send_control_event(EVENT_PRIVCOUNT_HSDIR_CACHE_STORED,
+                     "650 PRIVCOUNT_HSDIR_CACHE_STORED %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
 }
 
 STATIC char *

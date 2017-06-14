@@ -18,6 +18,8 @@
 #include "networkstatus.h"
 #include "rendcache.h"
 
+#include "control.h"
+
 /* Directory descriptor cache. Map indexed by blinded key. */
 static digest256map_t *hs_cache_v3_dir;
 
@@ -113,12 +115,21 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
 {
   hs_cache_dir_descriptor_t *cache_entry;
 
+  tor_assert(desc->plaintext_data->encrypted_blob_size <= SSIZE_MAX);
+  int has_existing_cache_entry = 0;
+  size_t encoded_size = strlen(desc->encoded_desc);
+  tor_assert(encoded_size <= SSIZE_MAX);
+  char blinded_pubkey_base64[ED25519_BASE64_LEN + 1];
+  ed25519_public_to_base64(blinded_pubkey_base64,
+                           &desc->plaintext_data->blinded_pubkey);
+
   tor_assert(desc);
 
   /* Verify if we have an entry in the cache for that key and if yes, check
    * if we should replace it? */
   cache_entry = lookup_v3_desc_as_dir(desc->key);
   if (cache_entry != NULL) {
+    has_existing_cache_entry = 1;
     /* Only replace descriptor if revision-counter is greater than the one
      * in our cache */
     if (cache_entry->plaintext_data->revision_counter >=
@@ -126,6 +137,35 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
       log_info(LD_REND, "Descriptor revision counter in our cache is "
                         "greater or equal than the one we received. "
                         "Rejecting!");
+      /* A list of fields in the v3 descriptor is available at:
+       * https://gitweb.torproject.org/torspec.git/tree/proposals/
+       * 224-rend-spec-ng.txt#n927
+       *
+       * The v3 onion address is not available in the descriptor.
+       * Use blinded_pubkey_base64 instead: there is one blinded public key
+       * per service address, per day (or hsdir-interval consensus parameter).
+       * The creation time for v3 is set by the HSDir when it parses the
+       * descriptor.
+       * The list of introduction points is encrypted in v3, so we can't count
+       * them. */
+      control_event_privcount_hsdir_cache_stored(
+            HS_VERSION_THREE,
+            /* cache info */
+            has_existing_cache_entry,
+            0, /* not added to cache */
+            "obsolete",
+            /* descriptor info */
+            encoded_size,
+            blinded_pubkey_base64,
+            /* no permanent-id */
+            privcount_check_range_i64(desc->plaintext_data->revision_counter),
+            desc->created_ts,
+            desc->plaintext_data->lifetime_sec,
+            0, /* no protocols */
+            -1, /* no intro point count */
+            desc->plaintext_data->encrypted_blob_size
+            /* no intro point details */
+            );
       goto err;
     }
     /* We now know that the descriptor we just received is a new one so
@@ -146,6 +186,24 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
 
   /* XXX: Update HS statistics. We should have specific stats for v3. */
 
+  control_event_privcount_hsdir_cache_stored(
+            HS_VERSION_THREE,
+            /* cache info */
+            has_existing_cache_entry,
+            1, /* added to cache */
+            NULL, /* succeeded */
+            /* descriptor info */
+            encoded_size,
+            blinded_pubkey_base64,
+            /* no permanent-id */
+            privcount_check_range_i64(desc->plaintext_data->revision_counter),
+            desc->created_ts,
+            desc->plaintext_data->lifetime_sec,
+            0, /* no protocols */
+            -1, /* no intro point count */
+            desc->plaintext_data->encrypted_blob_size
+            /* no intro point details */
+            );
   return 0;
 
  err:
@@ -252,6 +310,26 @@ hs_cache_store_as_dir(const char *desc)
    * is unparseable which in this case a log message will be triggered. */
   dir_desc = cache_dir_desc_new(desc);
   if (dir_desc == NULL) {
+    size_t encoded_size = strlen(desc);
+    tor_assert(encoded_size <= SSIZE_MAX);
+    control_event_privcount_hsdir_cache_stored(
+                                    HS_VERSION_THREE,
+                                    /* cache info */
+                                    -1, /* don't know if was cached */
+                                    0, /* not added to cache */
+                                    "unparseable",
+                                    /* descriptor info */
+                                    encoded_size,
+                                    NULL, /* no identifier */
+                                    /* no permanent-id */
+                                    -1, /* don't know revision counter */
+                                    -1, /* don't know creation timestamp */
+                                    -1, /* don't know lifetime */
+                                    0, /* no protocols */
+                                    -1, /* no intro point count */
+                                    -1 /* no intro point size */
+                                    /* no intro point details */
+                                    );
     goto err;
   }
 
