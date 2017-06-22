@@ -1183,7 +1183,7 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_PRIVCOUNT_CONNECTION_ENDED, "PRIVCOUNT_CONNECTION_ENDED" },
   /* These events are in tagged format */
   /* These events are HSDir events */
-  { EVENT_PRIVCOUNT_HSDIR_CACHE_STORED, "PRIVCOUNT_HSDIR_CACHE_STORED" },
+  { EVENT_PRIVCOUNT_HSDIR_CACHE_STORE, "PRIVCOUNT_HSDIR_CACHE_STORE" },
   { 0, NULL },
 };
 
@@ -7102,7 +7102,7 @@ control_event_privcount_hsdir_cache_stored(
     return;
   }
 
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_HSDIR_CACHE_STORED)) {
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_HSDIR_CACHE_STORE)) {
     return;
   }
 
@@ -7281,8 +7281,8 @@ control_event_privcount_hsdir_cache_stored(
   /* Some fields are mandatory, so the string will never be empty */
   tor_assert(len > 0);
 
-  send_control_event(EVENT_PRIVCOUNT_HSDIR_CACHE_STORED,
-                     "650 PRIVCOUNT_HSDIR_CACHE_STORED %s\r\n",
+  send_control_event(EVENT_PRIVCOUNT_HSDIR_CACHE_STORE,
+                     "650 PRIVCOUNT_HSDIR_CACHE_STORE %s\r\n",
                      event_string);
 
   tor_free(event_string);

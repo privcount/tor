@@ -250,7 +250,7 @@ void control_free_all(void);
 #define EVENT_PRIVCOUNT_CONNECTION_ENDED            0x0028
 /* These events are in tagged format */
 /* These events are HSDir events */
-#define EVENT_PRIVCOUNT_HSDIR_CACHE_STORED          0x0029
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_STORE          0x0029
 
 #define EVENT_MAX_                                  0x0029
 
