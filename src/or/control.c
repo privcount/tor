@@ -83,6 +83,11 @@
 #include "crypto_s2k.h"
 #include "procmon.h"
 
+/* PrivCount headers */
+#include "hs_cache.h"
+#include "rendcommon.h"
+#include "routerparse.h"
+
 /** Yield true iff <b>s</b> is the state of a control_connection_t that has
  * finished authentication and is accepting commands. */
 #define STATE_IS_OPEN(s) ((s) == CONTROL_CONN_STATE_OPEN)
@@ -1166,12 +1171,19 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_HS_DESC, "HS_DESC" },
   { EVENT_HS_DESC_CONTENT, "HS_DESC_CONTENT" },
   { EVENT_NETWORK_LIVENESS, "NETWORK_LIVENESS" },
+  /* PrivCount events */
+  /* These events are in positional format */
+  /* These events are exit events */
   { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
+  /* These events are entry, middle, exit, intro, and rend events */
   { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
     "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
   { EVENT_PRIVCOUNT_STREAM_ENDED, "PRIVCOUNT_STREAM_ENDED" },
   { EVENT_PRIVCOUNT_CIRCUIT_ENDED, "PRIVCOUNT_CIRCUIT_ENDED" },
   { EVENT_PRIVCOUNT_CONNECTION_ENDED, "PRIVCOUNT_CONNECTION_ENDED" },
+  /* These events are in tagged format */
+  /* These events are HSDir events */
+  { EVENT_PRIVCOUNT_HSDIR_CACHE_STORE, "PRIVCOUNT_HSDIR_CACHE_STORE" },
   { 0, NULL },
 };
 
@@ -5822,10 +5834,12 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
 }
 
 /* PrivCount macros */
-#define PRIVCOUNT_VERSION_STRING "1.0.1"
+#define PRIVCOUNT_VERSION_STRING "1.1.0"
 
 /* PrivCount static declarations */
 static int privcount_is_client(const channel_t *chan);
+
+/* PrivCount utility functions */
 
 /* Is conn itself a directory server connection?
  * NULL connections are not classified as directory connections. */
@@ -6276,6 +6290,19 @@ privcount_add_saturating(uint64_t a, uint64_t b)
   }
 }
 
+/* Check that input fits inside a signed 64-bit integer.
+ * If input is greater than INT64_MAX, log a warning and return INT64_MAX.
+ * Otherwise, return input. */
+int64_t
+privcount_check_range_i64(uint64_t input)
+{
+  if (BUG(input > INT64_MAX)) {
+    return INT64_MAX;
+  } else {
+    return input;
+  }
+}
+
 #define NO_CHANNEL_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_HOST "no-host"
@@ -6338,30 +6365,34 @@ privcount_conn_host_to_str_dup(const edge_connection_t *exitconn)
 }
 
 /* Return a newly allocated string representing tv in decimal seconds since
- * the epoch.
- * tv must not be NULL.
+ * the epoch. tv must not be NULL.
+ * Prepend prefix_string if it is not NULL.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_to_epoch_str_dup(const struct timeval *tv)
+privcount_timeval_to_epoch_str_dup(const struct timeval *tv,
+                                   const char *prefix_string)
 {
   tor_assert(tv);
 
   char *str = NULL;
   tor_assert(sizeof(long) >= sizeof(tv->tv_sec));
   tor_assert(sizeof(long) >= sizeof(tv->tv_usec));
-  tor_asprintf(&str, "%ld.%06ld", (long)tv->tv_sec, (long)tv->tv_usec);
+  tor_asprintf(&str, "%s%ld.%06ld",
+               prefix_string ? prefix_string : "",
+               (long)tv->tv_sec,
+               (long)tv->tv_usec);
   return str;
 }
 
 /* Return a newly allocated string representing the current time in decimal
- * seconds since the epoch.
+ * seconds since the epoch. Prepend prefix_string if it is not NULL.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_timeval_now_to_epoch_str_dup(void)
+privcount_timeval_now_to_epoch_str_dup(const char *prefix_string)
 {
   struct timeval now;
   tor_gettimeofday(&now);
-  return privcount_timeval_to_epoch_str_dup(&now);
+  return privcount_timeval_to_epoch_str_dup(&now, prefix_string);
 }
 
 /* Return a newly allocated string representing tv in ISO format (UTC) and
@@ -6378,7 +6409,7 @@ privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv)
   char iso_str[ISO_TIME_USEC_LEN+1];
   format_iso_time_nospace_usec(iso_str, tv);
 
-  char *epoch_str = privcount_timeval_to_epoch_str_dup(tv);
+  char *epoch_str = privcount_timeval_to_epoch_str_dup(tv, NULL);
 
   char *str = NULL;
   tor_asprintf(&str, "%s (%s)", iso_str, epoch_str);
@@ -6547,7 +6578,199 @@ privcount_get_version_str(void)
   return PRIVCOUNT_VERSION_STRING;
 }
 
+/* If str contains chr, set the first occurence of chr to '\0'. */
+static void
+privcount_cleanse_str(char *str, char chr)
+{
+  char *bad_char = strchr(str, chr);
+  if (bad_char) {
+    *bad_char = '\0';
+  }
+}
+
+/* If str contains spaces, equals signs, commas, or newlines (\r or \n),
+ * set the first one to '\0'. Modifies str in-place. */
+static void
+privcount_cleanse_tagged_str(char *str)
+{
+  privcount_cleanse_str(str, ' ');
+  privcount_cleanse_str(str, '=');
+  privcount_cleanse_str(str, ',');
+  privcount_cleanse_str(str, '\r');
+  privcount_cleanse_str(str, '\n');
+}
+
+/* If str contains spaces, equals signs, commas, or newlines (\r or \n),
+ * return 0. Otherwise, return 1. */
+static int
+privcount_tagged_str_is_clean(const char *str)
+{
+  if (strchr(str, ' ')) {
+    return 0;
+  }
+  if (strchr(str, '=')) {
+    return 0;
+  }
+  if (strchr(str, ',')) {
+    return 0;
+  }
+  if (strchr(str, '\r')) {
+    return 0;
+  }
+  if (strchr(str, '\n')) {
+    return 0;
+  }
+  return 1;
+}
+
+/* Like privcount_cleanse_tagged_str, but for const strings.
+ * Returns a newly allocated string, which must be freed using tor_free(). */
+static char *
+privcount_cleanse_tagged_str_dup(const char *str)
+{
+  char *new_str = tor_strdup(str);
+  privcount_cleanse_tagged_str(new_str);
+  return new_str;
+}
+
+/* Allocate and return a smartlist of the Hidden Service Introduction Points
+ * in desc, which is a NUL-terminated Hidden Service version 2 descriptor.
+ * The list must be freed using privcount_free_hs_v2_intro_points().
+ * Returns NULL if the descriptor or intro point section is unparseable,
+ * (including intro points encrypted with client auth), or if the number of
+ * intro points is invalid.
+ * Returns an empty smartlist if the descriptor is valid, but has no intro
+ * point section. */
+static smartlist_t *
+privcount_parse_hs_v2_intro_points(const char *desc)
+{
+  /* See rend_cache_store_v2_desc_as_dir() for the original code */
+  rend_service_descriptor_t *parsed = NULL;
+  char desc_id[DIGEST_LEN];
+  char *intro_content;
+  size_t intro_size;
+  size_t encoded_size;
+  const char *next_desc;
+  tor_assert(desc);
+
+  smartlist_t *intro_points = NULL;
+
+  /* If we're called from rend_cache_store_v2_desc_as_dir(), we re-parse the
+   * descriptor. That's ok. */
+  if (rend_parse_v2_service_descriptor(&parsed, desc_id, &intro_content,
+                                       &intro_size, &encoded_size,
+                                       &next_desc, desc, 1) >= 0) {
+
+    /* Check sizes are reasonable */
+    tor_assert(encoded_size <= SSIZE_MAX);
+    tor_assert(intro_size <= SSIZE_MAX);
+
+    /* Make sure there aren't any intro points before we parse them */
+    tor_assert_nonfatal(!parsed->intro_nodes);
+
+    /* See rend_cache_store_v2_desc_as_client() for the original code */
+    /* Decode introduction points. */
+    if (intro_content && intro_size > 0) {
+      /* This will only work if the intro points are not encrypted, that is,
+       * there is no client auth being used.
+       * clients would say: rend_data->auth_type == REND_NO_AUTH, but we don't
+       * know if there is any auth. So we do the initial check that
+       * rend_parse_introduction_points() does.
+       * If we skipped this check, we'd log an error on every basic or stealth
+       * descriptor upload. */
+      if (!fast_memcmpstart(intro_content, intro_size,
+                            "introduction-point ")) {
+        int n_intro_points = rend_parse_introduction_points(parsed,
+                                                            intro_content,
+                                                            intro_size);
+
+        /* Use the same checks as rend_cache_store_v2_desc_as_client() */
+        if (n_intro_points <= 0 || n_intro_points > MAX_INTRO_POINTS) {
+          /* Ignore the intro points: wrong number */
+          rend_service_descriptor_free(parsed);
+        } else {
+          /* Keep the intro points, but free the rest of the descriptor */
+          intro_points = parsed->intro_nodes;
+          parsed->intro_nodes = NULL;
+          rend_service_descriptor_free(parsed);
+        }
+      }
+    } else {
+      /* We know there are 0 intro points: there is no intro section */
+      intro_points = smartlist_new();
+    }
+  }
+
+  return intro_points;
+}
+
+/* Free the intro points in intro_points and the smartlist itself.
+ * Handles the list produced by
+ * privcount_parse_hs_v2_intro_points(), freeing it just like
+ * rend_service_descriptor_free() does.
+ * Ignores NULL intro_points. */
+static void
+privcount_free_hs_v2_intro_points(smartlist_t *intro_points)
+{
+  /* See rend_service_descriptor_free() for the original code */
+  if (intro_points) {
+    SMARTLIST_FOREACH(intro_points, rend_intro_point_t *, intro,
+                      rend_intro_point_free(intro););
+    smartlist_free(intro_points);
+  }
+}
+
+/* Allocate and return a string containing a comma-separated list of the
+ * fingerprints in intro_points. This string must be freed using tor_free().
+ * Returns an empty string for 0 intro_points.
+ * Returns NULL for NULL intro_points. */
+static char *
+privcount_list_hs_v2_intro_point_fingerprints(
+                                              const smartlist_t *intro_points)
+{
+  char *result_string = NULL;
+
+  if (intro_points) {
+    smartlist_t *fingerprints = smartlist_new();
+
+    /* Collect a list of fingerprints */
+    SMARTLIST_FOREACH_BEGIN(intro_points, rend_intro_point_t *, intro) {
+      /* Check that intro and intro->extend_info are non-NULL.
+       * Log a warning and ignore this intro if either is NULL. */
+      if (! BUG(!intro) && ! BUG(!intro->extend_info)) {
+        char buf[HEX_DIGEST_LEN+1];
+        base16_encode(buf, HEX_DIGEST_LEN+1,
+                      intro->extend_info->identity_digest,
+                      DIGEST_LEN);
+        /* Redundant: a hex string will always be allowed in a tagged event */
+        tor_assert(privcount_tagged_str_is_clean(buf));
+        smartlist_add_strdup(fingerprints, buf);
+      }
+    } SMARTLIST_FOREACH_END(intro);
+
+    /* Join them together */
+    size_t len = 0;
+    result_string = smartlist_join_strings(fingerprints, ",", 0, &len);
+    tor_assert(result_string);
+    /* The string will be empty if fingerprints are empty */
+    if (smartlist_len(intro_points) == 0) {
+      tor_assert(len == 0);
+    } else {
+      tor_assert(len > 0);
+    }
+
+    /* Clean up */
+    SMARTLIST_FOREACH(fingerprints, char *, f, tor_free(f));
+    smartlist_free(fingerprints);
+  }
+
+  return result_string;
+}
+
+/* PrivCount event functions */
+
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
+ * This event uses positional fields: order is important.
  * This event includes failed resolves, but excludes immediate results, such
  * as trivial IP address resolves and failed malformed resolves.
  * See PrivCount bug 184 for details.
@@ -6581,7 +6804,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
 
   /* ChanID, CircID, StreamID, Address, Time */
@@ -6599,6 +6822,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 
 /* Send a PrivCount stream data transfer event triggered on exitconn and
  * orcirc with amt bytes.
+ * This event uses positional fields: order is important.
  * If is_outbound is true, the data was written to a remote peer, otherwise,
  * the data was read from a remote peer.
  * exitconn must not be NULL.
@@ -6637,7 +6861,7 @@ control_event_privcount_stream_bytes_transferred(
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
 
   /* ChanID, CircID, StreamID, Direction, BW, Time */
   send_control_event(EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
@@ -6654,6 +6878,7 @@ control_event_privcount_stream_bytes_transferred(
 }
 
 /* Send a PrivCount stream end event triggered on exitconn.
+ * This event uses positional fields: order is important.
  * exitconn must not be NULL. */
 void
 control_event_privcount_stream_ended(const edge_connection_t *exitconn)
@@ -6693,9 +6918,10 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                      &exitconn->base_.timestamp_created_tv);
+                                      &exitconn->base_.timestamp_created_tv,
+                                      NULL);
 
   char *host_str = privcount_conn_host_to_str_dup(exitconn);
   char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
@@ -6725,6 +6951,7 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
 
 /* Send a PrivCount circuit end event triggered on orcirc, which may be an
  * entry, exit, or middle connection.
+ * This event uses positional fields: order is important.
  * Sets the privcount_event_emitted flag in orcirc to ensure that each
  * circuit only emits one event.
  * orcirc must not be NULL. */
@@ -6756,11 +6983,12 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   /* the difference between timestamp_created and timestamp_began only
    * matters on clients */
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                            &orcirc->base_.timestamp_created);
+                                            &orcirc->base_.timestamp_created,
+                                            NULL);
 
   /* we already know this is not an origin circ since we have a or_circuit_t
    * struct. But orcirc->p_chan can still be NULL here. */
@@ -6796,6 +7024,7 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 }
 
 /* Send a PrivCount connection end event triggered on orconn.
+ * This event uses positional fields: order is important.
  * orconn must not be NULL. */
 void
 control_event_privcount_connection_ended(const or_connection_t *orconn)
@@ -6821,9 +7050,10 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   }
 
   /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup();
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
   char *created_str = privcount_timeval_to_epoch_str_dup(
-                                        &orconn->base_.timestamp_created_tv);
+                                        &orconn->base_.timestamp_created_tv,
+                                        NULL);
 
   const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
   int is_client = privcount_is_client(chan);
@@ -6843,6 +7073,221 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   tor_free(now_str);
   tor_free(created_str);
   tor_free(addr);
+}
+
+/* Send a PrivCount HSDir onion service descriptor cache storage event using
+ * the supplied arguments.
+ * This event uses tagged parameters: each field is preceded by 'FieldName='.
+ * Order is unimportant. Unknown fields are left out.
+ * Signed types use -1 for unknown, except for hs_version_number, which must
+ * be either 2 or 3.
+ * Strings use NULL for unknown or not applicable. Strings must not contain
+ * spaces or equals signs. (If they do, the string is truncated at the first
+ * space or equals sign.) */
+void
+control_event_privcount_hsdir_cache_stored(
+                                      int hs_version_number,
+                                      int has_existing_cache_entry_flag,
+                                      int was_added_to_cache_flag,
+                                      const char *cache_reason_string,
+                                      const char *desc_id_base32,
+                                      rend_service_descriptor_t *hsv2_desc,
+                                      const char *hsv2_desc_body,
+                                      hs_cache_dir_descriptor_t *hsv3_desc,
+                                      ssize_t encoded_descriptor_byte_count,
+                                      ssize_t encoded_intro_point_byte_count)
+{
+  /* Just in case */
+  if (!get_options()->EnablePrivCount) {
+    return;
+  }
+
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_HSDIR_CACHE_STORE)) {
+    return;
+  }
+
+  /* We don't know how to handle other HS versions */
+  tor_assert(hs_version_number == 2 || hs_version_number == 3);
+
+  /* We have no way to find a circuit id for this upload, or filter out
+   * uploads that started before this collection round, but that's ok, because
+   * uploading a descriptor should be fast. */
+
+  /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* Now process each field.
+   * Try to keep related fields together.
+   * Field order is not guaranteed: these fields can be re-ordered as needed.
+   * But it will annoy parsers that mistakenly depend on event order. */
+
+  smartlist_add_asprintf(fields, "HiddenServiceVersionNumber=%d",
+                         hs_version_number);
+
+  /* Process the other mandatory fields */
+
+  smartlist_add(fields,
+                privcount_timeval_now_to_epoch_str_dup("EventTimestamp="));
+
+  tor_assert_nonfatal(cache_reason_string);
+  if (cache_reason_string) {
+    char *clean_str = privcount_cleanse_tagged_str_dup(cache_reason_string);
+    smartlist_add_asprintf(fields, "CacheReasonString=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  /* Process the common cache fields */
+
+  if (has_existing_cache_entry_flag >= 0) {
+    smartlist_add_asprintf(fields, "HasExistingCacheEntryFlag=%d",
+                           has_existing_cache_entry_flag);
+  }
+
+  tor_assert_nonfatal(was_added_to_cache_flag == 0
+                      || was_added_to_cache_flag == 1);
+  if (was_added_to_cache_flag >= 0) {
+    smartlist_add_asprintf(fields, "WasAddedToCacheFlag=%d",
+                           was_added_to_cache_flag);
+  }
+
+  /* Process the common descriptor fields */
+
+  /* This is not the onion address. You will be sad if you think it is. */
+  if (desc_id_base32) {
+    /* v3 descriptors have a desc id, but we would have to calculate it
+     * ourselves, so it's not yet implemented. */
+    char *clean_str = privcount_cleanse_tagged_str_dup(desc_id_base32);
+    smartlist_add_asprintf(fields, "DescriptorIdBase32String=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  /* Process the HSv2 fields */
+
+  if (hsv2_desc) {
+    /* copied from handle_control_hspost() */
+    char serviceid[REND_SERVICE_ID_LEN_BASE32+1];
+    if (hsv2_desc->pk && !rend_get_service_id(hsv2_desc->pk, serviceid)) {
+      privcount_cleanse_tagged_str(serviceid);
+      smartlist_add_asprintf(fields, "OnionAddress=%s",
+                             serviceid);
+    }
+
+/* We don't support time_t with a larger range than int64_t */
+#if SIZEOF_TIME_T > 8
+#error time_t too large for int64_t
+#elif SIZEOF_TIME_T == 8
+    tor_assert(TIME_MIN < 0);
+#endif
+
+    smartlist_add_asprintf(fields, "DescriptorCreationTime=%" PRIi64,
+                           (int64_t)hsv2_desc->timestamp);
+
+    int intro_point_count = -1;
+
+    if (hsv2_desc_body) {
+      /* Parse the intro points */
+      smartlist_t *intro_points;
+      /* zero means: no intro point section in a valid descriptor.
+       * NULL means: invalid descriptor or invalid or encrypted intro point
+       * section. */
+      intro_points = privcount_parse_hs_v2_intro_points(hsv2_desc_body);
+
+      if (intro_points) {
+        /* Keep the intro point count for RequiresClientAuthFlag */
+        intro_point_count = smartlist_len(intro_points);
+
+        smartlist_add_asprintf(fields, "IntroPointCount=%zd",
+                               intro_point_count);
+
+        /* Add the intro point fingerprints to the event */
+        char *fingerprints = privcount_list_hs_v2_intro_point_fingerprints(
+                                                                intro_points);
+        /* We don't need to check if the string is clean, because the
+         * individual fingerprints are hex strings, and they are separated by
+         * commas. */
+        smartlist_add_asprintf(fields, "IntroPointFingerprintList=%s",
+                               fingerprints);
+
+        /* Clean up */
+        tor_free(fingerprints);
+        privcount_free_hs_v2_intro_points(intro_points);
+      }
+    }
+
+    /* If there's no intro point data, we just don't know whether client
+     * auth is being used or not */
+    int requires_client_auth_flag = -1;
+
+    /* If there is intro point data, and we couldn't parse it, assume that's
+     * because the descriptor uses client auth */
+    if (encoded_intro_point_byte_count > 0 && intro_point_count < 0) {
+      requires_client_auth_flag = 1;
+    }
+
+    /* If we parsed the intro points, that's because the descriptor doesn't
+     * use client auth */
+    if (intro_point_count >= 0) {
+      requires_client_auth_flag = 0;
+    }
+
+    if (requires_client_auth_flag >= 0) {
+      smartlist_add_asprintf(fields, "RequiresClientAuthFlag=%d",
+                             requires_client_auth_flag);
+    }
+
+#if REND_PROTOCOL_VERSION_BITMASK_WIDTH > 16
+#error REND_PROTOCOL_VERSION_BITMASK_WIDTH is too large for int16_t
+#endif
+
+    smartlist_add_asprintf(fields, "SupportedProtocolBitfield=0x%" PRIx16,
+                           (int16_t)hsv2_desc->protocols);
+  }
+
+  /* Process the HSv3 fields */
+  if (hsv3_desc) {
+    /* copied from ed25519_fmt() */
+    char blinded_pubkey_base64[ED25519_BASE64_LEN+1];
+    ed25519_public_to_base64(blinded_pubkey_base64,
+                             &hsv3_desc->plaintext_data->blinded_pubkey);
+    /* Strip off the trailing padding */
+    privcount_cleanse_tagged_str(blinded_pubkey_base64);
+    smartlist_add_asprintf(fields, "BlindedEd25519PublicKeyBase64String=%s",
+                           blinded_pubkey_base64);
+
+    smartlist_add_asprintf(fields, "RevisionNumber=%" PRIu64,
+                           hsv3_desc->plaintext_data->revision_counter);
+
+    smartlist_add_asprintf(fields, "DescriptorLifetime=%" PRIu32,
+                           hsv3_desc->plaintext_data->lifetime_sec);
+  }
+
+  /* Process the common size fields */
+
+  if (encoded_descriptor_byte_count >= 0) {
+    smartlist_add_asprintf(fields, "EncodedDescriptorByteCount=%zd",
+                           encoded_descriptor_byte_count);
+  }
+
+  if (encoded_intro_point_byte_count >= 0) {
+    smartlist_add_asprintf(fields, "EncodedIntroPointByteCount=%zd",
+                           encoded_intro_point_byte_count);
+  }
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory, so the string will never be empty */
+  tor_assert(len > 0);
+
+  send_control_event(EVENT_PRIVCOUNT_HSDIR_CACHE_STORE,
+                     "650 PRIVCOUNT_HSDIR_CACHE_STORE %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
 }
 
 STATIC char *
