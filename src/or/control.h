@@ -179,7 +179,6 @@ void control_event_privcount_stream_bytes_transferred(
                                             const or_circuit_t *orcirc,
                                             uint64_t amt, int is_outbound);
 void control_event_privcount_stream_ended(const edge_connection_t *exitconn);
-void control_event_privcount_circuit_ended(or_circuit_t *orcirc);
 void control_event_privcount_connection_ended(const or_connection_t *orconn);
 /* Tagged events */
 /* Forward declaration to avoid including hs_cache.h */
@@ -195,6 +194,7 @@ void control_event_privcount_hsdir_cache_store(
                                       hs_cache_dir_descriptor_t *hsv3_desc,
                                       ssize_t encoded_descriptor_byte_count,
                                       ssize_t encoded_intro_point_byte_count);
+void control_event_privcount_circuit_close(or_circuit_t *orcirc);
 
 void control_free_all(void);
 

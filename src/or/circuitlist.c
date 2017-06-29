@@ -1397,7 +1397,7 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
         /* need to record end before clearing ids and pointers */
         or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
         if (circ->n_chan == chan || or_circ->p_chan == chan) {
-            control_event_privcount_circuit_ended(or_circ);
+            control_event_privcount_circuit_close(or_circ);
         }
     }
     if (circ->n_chan == chan) {
@@ -1914,7 +1914,7 @@ circuit_about_to_free(circuit_t *circ)
 
   /* do this before clearing n_chan and p_chan */
   if (!CIRCUIT_IS_ORIGIN(circ)) {
-    control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
+    control_event_privcount_circuit_close(TO_OR_CIRCUIT(circ));
   }
 
   if (circ->n_chan) {
