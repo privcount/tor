@@ -1175,7 +1175,8 @@ static const struct control_event_t control_event_table[] = {
   /* These events are in positional format */
   /* These events are exit events */
   { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
-  /* These events are entry, middle, exit, intro, and rend events */
+  /* These events are position-idependent events,
+   * but they ignore BEGINDIR, and only report exit cell and byte counts */
   { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
     "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
   { EVENT_PRIVCOUNT_STREAM_ENDED, "PRIVCOUNT_STREAM_ENDED" },
