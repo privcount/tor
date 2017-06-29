@@ -1175,7 +1175,7 @@ static const struct control_event_t control_event_table[] = {
   /* These events are in positional format */
   /* These events are exit events */
   { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
-  /* These events are position-idependent events,
+  /* These events are position-independent events,
    * but they ignore BEGINDIR, and only report exit cell and byte counts */
   { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
     "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
@@ -1185,6 +1185,22 @@ static const struct control_event_t control_event_table[] = {
   /* These events are in tagged format */
   /* These events are HSDir events */
   { EVENT_PRIVCOUNT_HSDIR_CACHE_STORE, "PRIVCOUNT_HSDIR_CACHE_STORE" },
+  /*
+  { EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH, "PRIVCOUNT_HSDIR_CACHE_FETCH" },
+  { EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH, "PRIVCOUNT_HSDIR_CACHE_EVICT" },
+   */
+  /* These events are position-independent events.
+   * There is no filtering on the Tor side.
+   * They include multiple byte and cell counters. */
+  /*
+  { EVENT_PRIVCOUNT_STREAM_BYTE, "PRIVCOUNT_STREAM_BYTE" },
+  { EVENT_PRIVCOUNT_STREAM_CLOSE, "PRIVCOUNT_STREAM_CLOSE" },
+  */
+  { EVENT_PRIVCOUNT_CIRCUIT_CELL, "PRIVCOUNT_CIRCUIT_CELL" },
+  { EVENT_PRIVCOUNT_CIRCUIT_CLOSE, "PRIVCOUNT_CIRCUIT_CLOSE" },
+  /*
+  { EVENT_PRIVCOUNT_CONNECTION_CLOSE, "PRIVCOUNT_CONNECTION_CLOSE" },
+   */
   { 0, NULL },
 };
 

@@ -243,16 +243,33 @@ void control_free_all(void);
 /* These events are in positional format */
 /* These events are exit events */
 #define EVENT_PRIVCOUNT_DNS_RESOLVED                0x0024
-/* These events are entry, middle, exit, intro, and rend events */
+/* These events are position-independent events,
+ * but they ignore BEGINDIR, and only report exit cell and byte counts */
 #define EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED    0x0025
 #define EVENT_PRIVCOUNT_STREAM_ENDED                0x0026
 #define EVENT_PRIVCOUNT_CIRCUIT_ENDED               0x0027
 #define EVENT_PRIVCOUNT_CONNECTION_ENDED            0x0028
 /* These events are in tagged format */
 /* These events are HSDir events */
-#define EVENT_PRIVCOUNT_HSDIR_CACHE_STORE          0x0029
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_STORE           0x0029
+/*
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH           0x002A
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_EVICT           0x002B
+ */
+/* These events are position-independent events.
+ * There is no filtering on the Tor side.
+ * They include multiple byte and cell counters. */
+/*
+#define EVENT_PRIVCOUNT_STREAM_BYTE                 0x0030
+#define EVENT_PRIVCOUNT_STREAM_CLOSE                0x0031
+*/
+#define EVENT_PRIVCOUNT_CIRCUIT_CELL                0x0032
+#define EVENT_PRIVCOUNT_CIRCUIT_CLOSE               0x0033
+/*
+#define EVENT_PRIVCOUNT_CONNECTION_CLOSE            0x0034
+*/
 
-#define EVENT_MAX_                                  0x0029
+#define EVENT_MAX_                                  0x0033
 
 /* sizeof(control_connection_t.event_mask) in bits, currently a uint64_t */
 #define EVENT_CAPACITY_               0x0040
