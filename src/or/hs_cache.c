@@ -160,7 +160,7 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
          * as the EventTimestamp.
          * The list of introduction points is encrypted in v3, so we can't
          * count them. */
-        control_event_privcount_hsdir_cache_stored(
+        control_event_privcount_hsdir_cache_store(
                                     HS_VERSION_THREE,
                                     /* cache info */
                                     has_existing_cache_entry,
@@ -197,7 +197,7 @@ cache_store_v3_as_dir(hs_cache_dir_descriptor_t *desc)
   /* XXX: Update HS statistics. We should have specific stats for v3. */
 
   if (options->EnablePrivCount) {
-    control_event_privcount_hsdir_cache_stored(
+    control_event_privcount_hsdir_cache_store(
                                     HS_VERSION_THREE,
                                     /* cache info */
                                     has_existing_cache_entry,
@@ -325,7 +325,7 @@ hs_cache_store_as_dir(const char *desc)
     if (get_options()->EnablePrivCount) {
       size_t encoded_size = strlen(desc);
       tor_assert(encoded_size <= SSIZE_MAX);
-      control_event_privcount_hsdir_cache_stored(
+      control_event_privcount_hsdir_cache_store(
                                     HS_VERSION_THREE,
                                     /* cache info */
                                     -1, /* don't know if was cached */

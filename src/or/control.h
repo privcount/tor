@@ -184,7 +184,7 @@ void control_event_privcount_connection_ended(const or_connection_t *orconn);
 /* Tagged events */
 /* Forward declaration to avoid including hs_cache.h */
 typedef struct hs_cache_dir_descriptor_t hs_cache_dir_descriptor_t;
-void control_event_privcount_hsdir_cache_stored(
+void control_event_privcount_hsdir_cache_store(
                                       int hs_version_number,
                                       int has_existing_cache_entry_flag,
                                       int was_added_to_cache_flag,

@@ -7085,7 +7085,7 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
  * spaces or equals signs. (If they do, the string is truncated at the first
  * space or equals sign.) */
 void
-control_event_privcount_hsdir_cache_stored(
+control_event_privcount_hsdir_cache_store(
                                       int hs_version_number,
                                       int has_existing_cache_entry_flag,
                                       int was_added_to_cache_flag,

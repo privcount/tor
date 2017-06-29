@@ -734,21 +734,21 @@ rend_cache_store_v2_desc_as_dir(const char *desc)
 
       /* Successful stores */
       tor_assert(!failure_reason);
-      control_event_privcount_hsdir_cache_stored(HS_VERSION_TWO,
-                                               /* cache info */
-                                               has_existing_cache_entry,
-                                               1, /* added to cache */
-                                               (has_existing_cache_entry
-                                                ? "updated"
-                                                : "new"),
-                                               /* descriptor info */
-                                               desc_id_base32,
-                                               parsed,
-                                               current_desc,
-                                               NULL, /* not v3 */
-                                               encoded_size,
-                                               intro_size
-                                               );
+      control_event_privcount_hsdir_cache_store(HS_VERSION_TWO,
+                                                /* cache info */
+                                                has_existing_cache_entry,
+                                                1, /* added to cache */
+                                                (has_existing_cache_entry
+                                                 ? "updated"
+                                                 : "new"),
+                                                /* descriptor info */
+                                                desc_id_base32,
+                                                parsed,
+                                                current_desc,
+                                                NULL, /* not v3 */
+                                                encoded_size,
+                                                intro_size
+                                                );
     }
 
     number_stored++;
@@ -758,19 +758,19 @@ rend_cache_store_v2_desc_as_dir(const char *desc)
     if (options->EnablePrivCount) {
       /* Failed stores */
       tor_assert(failure_reason);
-      control_event_privcount_hsdir_cache_stored(HS_VERSION_TWO,
-                                               /* cache info */
-                                               has_existing_cache_entry,
-                                               0, /* not added to cache */
-                                               failure_reason,
-                                               /* descriptor info */
-                                               desc_id_base32,
-                                               parsed,
-                                               current_desc,
-                                               NULL, /* not v3 */
-                                               encoded_size,
-                                               intro_size
-                                               );
+      control_event_privcount_hsdir_cache_store(HS_VERSION_TWO,
+                                                /* cache info */
+                                                has_existing_cache_entry,
+                                                0, /* not added to cache */
+                                                failure_reason,
+                                                /* descriptor info */
+                                                desc_id_base32,
+                                                parsed,
+                                                current_desc,
+                                                NULL, /* not v3 */
+                                                encoded_size,
+                                                intro_size
+                                                );
     }
 
     rend_service_descriptor_free(parsed);
@@ -791,7 +791,7 @@ rend_cache_store_v2_desc_as_dir(const char *desc)
       tor_assert(trailing_byte_count <= SSIZE_MAX);
     }
     if (!number_parsed || trailing_byte_count) {
-      control_event_privcount_hsdir_cache_stored(
+      control_event_privcount_hsdir_cache_store(
                                           HS_VERSION_TWO,
                                           /* cache info */
                                           -1, /* don't know if in cache */
