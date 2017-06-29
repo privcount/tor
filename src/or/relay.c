@@ -228,7 +228,6 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
      */
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           cell->command, /* was relay_command */
                                            PRIVCOUNT_CELL_RECEIVED);
     }
 
@@ -243,7 +242,6 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
      */
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           cell->command, /* was relay_command */
                                            PRIVCOUNT_CELL_RECEIVED);
     }
 
@@ -256,17 +254,14 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
     if (cell_direction == CELL_DIRECTION_OUT) {
       control_event_privcount_circuit_cell(TO_OR_CIRCUIT(circ)->p_chan, circ,
                                            cell,
-                                           cell->command, /* was relay_command */
                                            PRIVCOUNT_CELL_RECEIVED);
     } else if (!CIRCUIT_IS_ORIGIN(circ)) {
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
-                                           cell->command, /* was relay_command */
                                            PRIVCOUNT_CELL_RECEIVED);
     } else {
       /* This was missing from the original cell code. Why? */
       /* Are we ignoring all origin cells? Do it in the privcount code. */
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
-                                           cell->command, /* was relay_command */
                                            PRIVCOUNT_CELL_RECEIVED);
     }
   }
@@ -2833,7 +2828,6 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
     /* This cell is never actually sent: ignore it in the PrivCount code */
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           cell->command, /* was relay_command */
                                            PRIVCOUNT_CELL_SENT);
     }
 
@@ -2842,7 +2836,6 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
 
   if (get_options()->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, circ, cell,
-                                         cell->command, /* was relay_command */
                                          PRIVCOUNT_CELL_SENT);
   }
 

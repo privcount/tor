@@ -7029,19 +7029,16 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
  * - circ, which can be any type of circuit in any position in the circuit
  *   (TODO: except for origin?), circ must not be NULL.
  * - cell, TODO, TODO: cell must not be NULL?
- * - relay_command, TODO, can be zero,
  * - is_sent, which is PRIVCOUNT_CELL_SENT for sent cells, and
  *   PRIVCOUNT_CELL_RECEIVED for received cells.
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
  * Order is unimportant. Unknown fields are left out. */
 void
 control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
-                                     cell_t *cell, uint8_t relay_command,
-                                     int is_sent)
+                                     cell_t *cell, int is_sent)
 {
   (void)chan;
   (void)cell;
-  (void)relay_command;
   (void)is_sent;
 
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CELL)) {
