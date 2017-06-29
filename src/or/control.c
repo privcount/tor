@@ -7024,6 +7024,47 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
   tor_free(n_addr);
 }
 
+/* Send a PrivCount circuit cell event triggered on:
+ * - chan, TODO, TODO: chan must not be NULL?
+ * - circ, which can be any type of circuit in any position in the circuit
+ *   (TODO: except for origin?), circ must not be NULL.
+ * - cell, TODO, TODO: cell must not be NULL?
+ * - relay_command, TODO, can be zero,
+ * - is_sent, which is PRIVCOUNT_CELL_SENT for sent cells, and
+ *   PRIVCOUNT_CELL_RECEIVED for received cells.
+ * This event uses tagged parameters: each field is preceded by 'FieldName='.
+ * Order is unimportant. Unknown fields are left out. */
+void
+control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
+                                     cell_t *cell, uint8_t relay_command,
+                                     int is_sent)
+{
+  (void)chan;
+  (void)cell;
+  (void)relay_command;
+  (void)is_sent;
+
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CELL)) {
+    return;
+  }
+
+  /* Ignore any missing circs, because we need a circ for the bias check below
+   */
+  if (BUG(!circ)) {
+    return;
+  }
+
+  /* Filter out circuit events for circuits that started before this
+   * collection round */
+  if (!privcount_was_enabled_before(&circ->timestamp_created,
+                                    get_options())) {
+    return;
+  }
+
+  send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CELL,
+                     "650 PRIVCOUNT_CIRCUIT_CELL");
+}
+
 /* Send a PrivCount circuit close event triggered on orcirc, which can be any
  * type of OR circuit, and in any position in the circuit (except for origin).
  * This event uses tagged parameters: each field is preceded by 'FieldName='.

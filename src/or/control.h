@@ -195,6 +195,11 @@ void control_event_privcount_hsdir_cache_store(
                                       ssize_t encoded_descriptor_byte_count,
                                       ssize_t encoded_intro_point_byte_count);
 void control_event_privcount_circuit_close(or_circuit_t *orcirc);
+void control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
+                                          cell_t *cell, uint8_t relay_command,
+                                          int is_sent);
+#define PRIVCOUNT_CELL_RECEIVED 0
+#define PRIVCOUNT_CELL_SENT 1
 
 void control_free_all(void);
 

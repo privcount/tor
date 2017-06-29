@@ -221,12 +221,54 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
   tor_assert(circ);
   tor_assert(cell_direction == CELL_DIRECTION_OUT ||
              cell_direction == CELL_DIRECTION_IN);
-  if (circ->marked_for_close)
+  if (circ->marked_for_close) {
+
+    /* This was missing from the original cell code. Why? */
+    /* This cell is never actually processed: ignore it in the PrivCount code?
+     */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           cell->command, /* was relay_command */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     return 0;
+  }
 
   if (relay_crypt(circ, cell, cell_direction, &layer_hint, &recognized) < 0) {
     log_warn(LD_BUG,"relay crypt failed. Dropping connection.");
+
+    /* This was missing from the original cell code. Why? */
+    /* This cell is never actually processed: ignore it in the PrivCount code?
+     */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           cell->command, /* was relay_command */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     return -END_CIRC_REASON_INTERNAL;
+  }
+
+  /* This code has changed a lot since the example code was written */
+  /* where did it come **from** ? */
+  if (get_options()->EnablePrivCount) {
+    if (cell_direction == CELL_DIRECTION_OUT) {
+      control_event_privcount_circuit_cell(TO_OR_CIRCUIT(circ)->p_chan, circ,
+                                           cell,
+                                           cell->command, /* was relay_command */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    } else if (!CIRCUIT_IS_ORIGIN(circ)) {
+      control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
+                                           cell->command, /* was relay_command */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    } else {
+      /* This was missing from the original cell code. Why? */
+      /* Are we ignoring all origin cells? Do it in the privcount code. */
+      control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
+                                           cell->command, /* was relay_command */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
   }
 
   if (recognized) {
@@ -2784,8 +2826,25 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
 #endif
 
   int exitward;
-  if (circ->marked_for_close)
+
+  if (circ->marked_for_close) {
+
+    /* This was missing from the original cell code. Why? */
+    /* This cell is never actually sent: ignore it in the PrivCount code */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           cell->command, /* was relay_command */
+                                           PRIVCOUNT_CELL_SENT);
+    }
+
     return;
+  }
+
+  if (get_options()->EnablePrivCount) {
+    control_event_privcount_circuit_cell(chan, circ, cell,
+                                         cell->command, /* was relay_command */
+                                         PRIVCOUNT_CELL_SENT);
+  }
 
   exitward = (direction == CELL_DIRECTION_OUT);
   if (exitward) {

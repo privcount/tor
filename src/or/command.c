@@ -255,6 +255,14 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
            "Received a create cell (type %d) from %s with zero circID; "
            " ignoring.", (int)cell->command,
            channel_get_actual_remote_descr(chan));
+
+    /* PrivCount will just ignore this, but do it anyway for consistency */
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, NULL, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     return;
   }
 
@@ -272,6 +280,14 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
              node_describe(node), p);
       tor_free(p);
     }
+
+    /* PrivCount will just ignore this, but do it anyway for consistency */
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, NULL, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     return;
   }
 
@@ -281,6 +297,14 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
              "destroy.");
     channel_send_destroy(cell->circ_id, chan,
                                END_CIRC_REASON_HIBERNATING);
+
+    /* PrivCount will just ignore this, but do it anyway for consistency */
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, NULL, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     return;
   }
 
@@ -291,6 +315,14 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
            "to it as a client. "
            "Sending back a destroy.",
            (int)cell->command, channel_get_canonical_remote_descr(chan));
+
+    /* PrivCount will just ignore this, but do it anyway for consistency */
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, NULL, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     channel_send_destroy(cell->circ_id, chan,
                          END_CIRC_REASON_TORPROTOCOL);
     return;
@@ -309,6 +341,14 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "Received create cell with unexpected circ_id %u. Closing.",
            (unsigned)cell->circ_id);
+
+    /* PrivCount will just ignore this, but do it anyway for consistency */
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, NULL, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     channel_send_destroy(cell->circ_id, chan,
                          END_CIRC_REASON_TORPROTOCOL);
     return;
@@ -317,6 +357,13 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
   circ = or_circuit_new(cell->circ_id, chan);
   circ->base_.purpose = CIRCUIT_PURPOSE_OR;
   circuit_set_state(TO_CIRCUIT(circ), CIRCUIT_STATE_ONIONSKIN_PENDING);
+
+  if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+  }
+
   create_cell = tor_malloc_zero(sizeof(create_cell_t));
   if (create_cell_parse(create_cell, cell) < 0) {
     tor_free(create_cell);
@@ -397,6 +444,14 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
 
   circ = circuit_get_by_circid_channel(cell->circ_id, chan);
 
+  if (get_options()->EnablePrivCount) {
+    if (circ) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+  }
+
   if (!circ) {
     log_info(LD_OR,
              "(circID %u) unknown circ (probably got a destroy earlier). "
@@ -473,11 +528,26 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
               "unknown circuit %u on connection from %s. Dropping.",
               (unsigned)cell->circ_id,
               channel_get_canonical_remote_descr(chan));
+
+    /* PrivCount will just ignore this, but do it anyway for consistency */
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     return;
   }
 
   if (circ->state == CIRCUIT_STATE_ONIONSKIN_PENDING) {
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit in create_wait. Closing.");
+
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
     return;
   }
@@ -513,6 +583,13 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
         log_warn(LD_OR, " upstream=%s",
                  channel_get_actual_remote_descr(circ->n_chan));
       }
+
+      if (options->EnablePrivCount) {
+        control_event_privcount_circuit_cell(chan, circ, cell,
+                                             cell->command, /* was 0 */
+                                             PRIVCOUNT_CELL_RECEIVED);
+      }
+
       circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
       return;
     } else {
@@ -523,6 +600,13 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
                "  Closing circuit.",
                (unsigned)cell->circ_id,
                safe_str(channel_get_canonical_remote_descr(chan)));
+
+        if (options->EnablePrivCount) {
+          control_event_privcount_circuit_cell(chan, circ, cell,
+                                               cell->command, /* was 0 */
+                                               PRIVCOUNT_CELL_RECEIVED);
+        }
+
         circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
         return;
       }
@@ -534,6 +618,14 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit_receive_relay_cell "
            "(%s) failed. Closing.",
            direction==CELL_DIRECTION_OUT?"forward":"backward");
+
+    /* This was missing from the original cell code. Why? */
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           cell->command, /* was 0 */
+                                           PRIVCOUNT_CELL_RECEIVED);
+    }
+
     circuit_mark_for_close(circ, -reason);
   }
 
@@ -566,6 +658,13 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
   int reason;
 
   circ = circuit_get_by_circid_channel(cell->circ_id, chan);
+
+  if (get_options()->EnablePrivCount) {
+    control_event_privcount_circuit_cell(chan, circ, cell,
+                                         cell->command, /* was 0 */
+                                         PRIVCOUNT_CELL_RECEIVED);
+  }
+
   if (!circ) {
     log_info(LD_OR,"unknown circuit %u on connection from %s. Dropping.",
              (unsigned)cell->circ_id,
