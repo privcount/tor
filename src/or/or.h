@@ -1630,12 +1630,16 @@ typedef struct edge_connection_t {
   /** Bytes read since last call to control_event_stream_bandwidth_used() */
   uint32_t n_read;
   /* Excludes bytes that privcount considers overhead */
-  uint64_t privcount_n_read;
+  uint64_t privcount_n_exit_bytes_inbound;
+  /* Counts server directory bytes */
+  uint64_t privcount_n_dir_bytes_inbound;
 
   /** Bytes written since last call to control_event_stream_bandwidth_used() */
   uint32_t n_written;
   /* Excludes bytes that privcount considers overhead */
-  uint64_t privcount_n_written;
+  uint64_t privcount_n_exit_bytes_outbound;
+  /* Counts server directory bytes */
+  uint64_t privcount_n_dir_bytes_outbound;
 
   /** True iff this connection is for a DNS request only. */
   unsigned int is_dns_request:1;
@@ -2977,6 +2981,9 @@ typedef struct circuit_t {
   /** True iff this circuit has received a DESTROY cell in either direction */
   unsigned int received_destroy : 1;
 
+  /* Has the tagged circuit close event been emitted? */
+  unsigned int privcount_event_emitted : 1;
+
   uint8_t state; /**< Current status of this circuit. */
   uint8_t purpose; /**< Why are we creating this circuit? */
 
@@ -3063,6 +3070,14 @@ typedef struct circuit_t {
    * circuit's queues; used only if CELL_STATS events are enabled and
    * cleared after being sent to control port. */
   smartlist_t *testing_cell_stats;
+
+  /* Cell counters for PrivCount: these counters count all cells, including
+   * cells unsent due to error. If you want more specific counts, use the
+   * cell event. */
+  uint64_t privcount_n_cells_sent_inbound;
+  uint64_t privcount_n_cells_received_inbound;
+  uint64_t privcount_n_cells_sent_outbound;
+  uint64_t privcount_n_cells_received_outbound;
 } circuit_t;
 
 /** Largest number of relay_early cells that we can send on a given
@@ -3396,6 +3411,38 @@ typedef struct or_circuit_t {
    *  statistics. */
   unsigned int circuit_carries_hs_traffic_stats : 1;
 
+  /* Has the legacy circuit end event been emitted? */
+  unsigned int privcount_legacy_event_emitted : 1;
+
+  /* We tag these even if PrivCount is not enabled, because otherwise we'd
+   * have to track whether PrivCount was enabled on the rend splice and
+   * intro tap before providing their information. */
+
+  /* We don't know the hidden service version unless we tag it ourselves.
+   * 0 means "unknown", valid versions are 2 and 3. */
+  unsigned int privcount_hs_version_number : 2;
+
+  /** We can't find HSDir circuits unless we tag them ourselves. */
+  unsigned int privcount_circuit_client_hsdir : 1;
+  unsigned int privcount_circuit_service_hsdir : 1;
+
+  /** We can't find client intro circuits unless we tag them
+   * ourselves. Service intro circuits have their own purpose. */
+  unsigned int privcount_circuit_client_intro : 1;
+
+  /** We can't distinguish client and service rend circuits unless we tag them
+   * ourselves. (Client rend circuits only have a specific purpose while
+   * waiting.) */
+  unsigned int privcount_circuit_client_rend : 1;
+  unsigned int privcount_circuit_service_rend : 1;
+
+  /** The service introduction circuit that accepted the last client
+   * INTRODUCE cell from this circuit. Cleared when this circuit is marked for
+   * close. Use the accessor function to access this: it checks that the
+   * intro sink still exists before returning it. */
+  uint64_t privcount_intro_sink_p_chan_global_identifier;
+  circid_t privcount_intro_sink_p_circ_id;
+
   /** Number of cells that were removed from circuit queue; reset every
    * time when writing buffer stats to disk. */
   uint32_t processed_cells;
@@ -3414,13 +3461,14 @@ typedef struct or_circuit_t {
   /* Excludes cells and bytes that privcount considers overhead.
    * Use privcount_add_saturating() when modifying these values to avoid
    * overflow. */
-  uint64_t privcount_n_cells_in;
-  uint64_t privcount_n_cells_out;
-  uint64_t privcount_n_read;
-  uint64_t privcount_n_written;
-  /* Has the circuit ended event been emitted? */
-  int privcount_event_emitted;
+  uint64_t privcount_n_exit_cells_inbound;
+  uint64_t privcount_n_exit_cells_outbound;
+  uint64_t privcount_n_exit_bytes_inbound;
+  uint64_t privcount_n_exit_bytes_outbound;
 
+  /* Counts server directory bytes */
+  uint64_t privcount_n_dir_bytes_inbound;
+  uint64_t privcount_n_dir_bytes_outbound;
 } or_circuit_t;
 
 #if REND_COOKIE_LEN != DIGEST_LEN

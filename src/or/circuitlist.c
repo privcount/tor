@@ -861,6 +861,8 @@ or_circuit_new(circid_t p_circ_id, channel_t *p_chan)
   circ->remaining_relay_early_cells = MAX_RELAY_EARLY_CELLS_PER_CIRCUIT;
   cell_queue_init(&circ->p_chan_cells);
 
+  privcount_clear_intro_client_sink(circ);
+
   init_circuit_base(TO_CIRCUIT(circ));
 
   return circ;
@@ -1393,14 +1395,27 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
 
   SMARTLIST_FOREACH_BEGIN(detached, circuit_t *, circ) {
     int mark = 0;
+
     if (!CIRCUIT_IS_ORIGIN(circ)) {
         /* need to record end before clearing ids and pointers */
         or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
         if (circ->n_chan == chan || or_circ->p_chan == chan) {
-            control_event_privcount_circuit_ended(or_circ);
+          /* Send the OR circuit legacy event. This covers the p_chan case
+           * below, but misses the origin n_chan cases. */
+          if (get_options()->EnablePrivCount) {
+            control_event_privcount_circuit(circ, 1);
+          }
         }
     }
+
     if (circ->n_chan == chan) {
+
+      /* Send the OR circuit or origin circuit event: it's safe to call this
+       * function after we send the legacy event, because it ignores duplicate
+       * circuit close events */
+      if (get_options()->EnablePrivCount) {
+        control_event_privcount_circuit(circ, 0);
+      }
 
       circuit_set_n_circid_chan(circ, 0, NULL);
       mark = 1;
@@ -1792,6 +1807,11 @@ circuit_mark_for_close_, (circuit_t *circ, int reason, int line,
   circ->marked_for_close_reason = reason;
   circ->marked_for_close_orig_reason = orig_reason;
 
+  if (get_options()->EnablePrivCount) {
+    /* Make sure we do this after we close, but before we clear rend_splice */
+    control_event_privcount_circuit(circ, 0);
+  }
+
   if (!CIRCUIT_IS_ORIGIN(circ)) {
     or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
     if (or_circ->rend_splice) {
@@ -1801,6 +1821,7 @@ circuit_mark_for_close_, (circuit_t *circ, int reason, int line,
       }
       or_circ->rend_splice = NULL;
     }
+    privcount_clear_intro_client_sink(or_circ);
   }
 
   if (circuits_pending_close == NULL)
@@ -1913,8 +1934,8 @@ circuit_about_to_free(circuit_t *circ)
   }
 
   /* do this before clearing n_chan and p_chan */
-  if (!CIRCUIT_IS_ORIGIN(circ)) {
-    control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
+  if (get_options()->EnablePrivCount) {
+    control_event_privcount_circuit(circ, !CIRCUIT_IS_ORIGIN(circ));
   }
 
   if (circ->n_chan) {

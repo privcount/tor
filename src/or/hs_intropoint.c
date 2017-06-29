@@ -27,6 +27,8 @@
 #include "hs_intropoint.h"
 #include "hs_common.h"
 
+#include "control.h"
+
 /** Extract the authentication key from an ESTABLISH_INTRO or INTRODUCE1 using
  * the given <b>cell_type</b> from <b>cell</b> and place it in
  * <b>auth_key_out</b>. */
@@ -193,6 +195,8 @@ handle_verified_establish_intro_cell(or_circuit_t *circ,
     log_warn(LD_BUG, "Couldn't send INTRO_ESTABLISHED cell.");
     return -1;
   }
+
+  circ->privcount_hs_version_number = HS_VERSION_THREE;
 
   /* Associate intro point auth key with this circuit. */
   hs_circuitmap_register_intro_circ_v3(circ, &auth_key);
@@ -475,6 +479,8 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
     }
   }
 
+  privcount_set_intro_client_sink(client_circ, service_circ);
+
   /* Relay the cell to the service on its intro circuit with an INTRODUCE2
    * cell which is the same exact payload. */
   if (relay_send_command_from_edge(CONTROL_CELL_ID, TO_CIRCUIT(service_circ),
@@ -561,6 +567,8 @@ hs_intro_received_introduce1(or_circuit_t *circ, const uint8_t *request,
   tor_assert(circ);
   tor_assert(request);
 
+  circ->privcount_circuit_client_intro = 1;
+
   /* A cell that can't hold a DIGEST_LEN is invalid as we need to check if
    * it's a legacy cell or not using the first DIGEST_LEN bytes. */
   if (request_len < DIGEST_LEN) {
@@ -581,9 +589,11 @@ hs_intro_received_introduce1(or_circuit_t *circ, const uint8_t *request,
   /* We are sure here to have at least DIGEST_LEN bytes. */
   if (introduce1_cell_is_legacy(request)) {
     /* Handle a legacy cell. */
+    circ->privcount_hs_version_number = HS_VERSION_TWO;
     ret = rend_mid_introduce_legacy(circ, request, request_len);
   } else {
     /* Handle a non legacy cell. */
+    circ->privcount_hs_version_number = HS_VERSION_THREE;
     ret = handle_introduce1(circ, request, request_len);
   }
   return ret;

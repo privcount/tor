@@ -85,6 +85,7 @@
 
 /* PrivCount headers */
 #include "hs_cache.h"
+#include "relay.h"
 #include "rendcommon.h"
 #include "routerparse.h"
 
@@ -1175,7 +1176,7 @@ static const struct control_event_t control_event_table[] = {
   /* These events are in positional format */
   /* These events are exit events */
   { EVENT_PRIVCOUNT_DNS_RESOLVED, "PRIVCOUNT_DNS_RESOLVED" },
-  /* These events are position-idependent events,
+  /* These events are position-independent events,
    * but they ignore BEGINDIR, and only report exit cell and byte counts */
   { EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED,
     "PRIVCOUNT_STREAM_BYTES_TRANSFERRED" },
@@ -1185,6 +1186,22 @@ static const struct control_event_t control_event_table[] = {
   /* These events are in tagged format */
   /* These events are HSDir events */
   { EVENT_PRIVCOUNT_HSDIR_CACHE_STORE, "PRIVCOUNT_HSDIR_CACHE_STORE" },
+  /*
+   * { EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH, "PRIVCOUNT_HSDIR_CACHE_FETCH" },
+   * { EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH, "PRIVCOUNT_HSDIR_CACHE_EVICT" },
+   */
+  /* These events are position-independent events.
+   * There is no filtering on the Tor side.
+   * They include multiple byte and cell counters. */
+  /*
+   * { EVENT_PRIVCOUNT_STREAM_BYTE, "PRIVCOUNT_STREAM_BYTE" },
+   * { EVENT_PRIVCOUNT_STREAM_CLOSE, "PRIVCOUNT_STREAM_CLOSE" },
+  */
+  { EVENT_PRIVCOUNT_CIRCUIT_CELL, "PRIVCOUNT_CIRCUIT_CELL" },
+  { EVENT_PRIVCOUNT_CIRCUIT_CLOSE, "PRIVCOUNT_CIRCUIT_CLOSE" },
+  /*
+   * { EVENT_PRIVCOUNT_CONNECTION_CLOSE, "PRIVCOUNT_CONNECTION_CLOSE" },
+   */
   { 0, NULL },
 };
 
@@ -5842,6 +5859,104 @@ static int privcount_is_client(const channel_t *chan);
 
 /* PrivCount utility functions */
 
+/* A safe version of TO_OR_CIRCUIT() that returns NULL when circ is NULL or
+ * circ is not an OR circuit */
+static or_circuit_t*
+privcount_to_or_circ(circuit_t *circ)
+{
+  if (!circ) {
+    return NULL;
+  }
+
+  if (!CIRCUIT_IS_ORCIRC(circ)) {
+    return NULL;
+  }
+
+  return TO_OR_CIRCUIT(circ);
+}
+
+/* Like privcount_to_or_circ, but with casts that tell the
+ * compiler we're not actually modifying anything */
+static const or_circuit_t*
+privcount_to_const_or_circ(const circuit_t *circ)
+{
+  return (const or_circuit_t*)privcount_to_or_circ((circuit_t *)circ);
+}
+
+/* A safe version of TO_EDGE_CONN() that returns NULL when conn is NULL or
+ * conn is not an exit conn */
+static edge_connection_t*
+privcount_to_exit_conn(connection_t *conn)
+{
+  if (!conn) {
+    return NULL;
+  }
+
+  if (conn->type != CONN_TYPE_EXIT) {
+    return NULL;
+  }
+
+  return TO_EDGE_CONN(conn);
+}
+
+/* Like privcount_to_exit_conn, but with casts that tell the
+ * compiler we're not actually modifying anything */
+static const edge_connection_t*
+privcount_to_const_exit_conn(const connection_t *conn)
+{
+  return (const edge_connection_t*)privcount_to_exit_conn(
+                                                        (connection_t *)conn);
+}
+
+/* A safe version of TO_CIRCUIT() that returns NULL when circ is NULL */
+#define PRIVCOUNT_TO_CIRC(circ) ((circ) ? TO_CIRCUIT((circ)) : NULL)
+
+/* A safe version of TO_CONN() that returns NULL when conn is NULL */
+#define PRIVCOUNT_TO_CONN(conn) ((conn) ? TO_CONN((conn)) : NULL)
+
+/* Find the circuit for orcirc or exitconn
+ * Either orcirc or exitconn may be NULL, if they are, the other is used.
+ * If both are NULL, returns NULL. */
+static circuit_t*
+privcount_get_exit_circ(edge_connection_t* exitconn,
+                        or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return PRIVCOUNT_TO_CIRC(orcirc);
+  } else if (exitconn) {
+    return circuit_get_by_edge_conn(exitconn);
+  } else {
+    return NULL;
+  }
+}
+
+/* Find the or_circuit for orcirc or exitconn
+ * Either orcirc or exitconn may be NULL, if they are, the other is used.
+ * If both are NULL, or an or_circuit can not be found, returns NULL. */
+static or_circuit_t*
+privcount_get_exit_or_circ(edge_connection_t* exitconn,
+                           or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    tor_assert_nonfatal(CIRCUIT_IS_ORCIRC(orcirc));
+    return orcirc;
+  } else {
+    circuit_t* circ = privcount_get_exit_circ(exitconn, orcirc);
+    return privcount_to_or_circ(circ);
+  }
+}
+
+/* Like privcount_get_exit_or_circ, but with casts that tell the compiler we're
+ * not actually modifying anything */
+static const or_circuit_t*
+privcount_get_exit_const_or_circ(const edge_connection_t* exitconn,
+                                 const or_circuit_t *orcirc)
+{
+  return (const or_circuit_t *)privcount_get_exit_or_circ(
+                                                (edge_connection_t *)exitconn,
+                                                (or_circuit_t *)orcirc);
+}
+
 /* Is conn itself a directory server connection?
  * NULL connections are not classified as directory connections. */
 static int
@@ -5908,6 +6023,278 @@ privcount_circuit_is_dir(const circuit_t *circ)
   return 0;
 }
 
+/* Mark the circuit for conn as a HSDir connection based on hs_version_number
+ * and is_store. */
+void
+privcount_mark_circuit_hsdir_conn(const dir_connection_t *dirconn,
+                                  int hs_version_number,
+                                  int is_store)
+{
+  const connection_t *dirbase = PRIVCOUNT_TO_CONN(dirconn);
+
+  /* We don't know how to handle other HS versions */
+  tor_assert(hs_version_number == HS_VERSION_TWO ||
+             hs_version_number == HS_VERSION_THREE);
+
+  /* We can't mark a circuit if we can't get to it */
+  if (!dirbase || !dirbase->linked || !dirbase->linked_conn) {
+    return;
+  }
+
+  /* Find the linked edge connection */
+  const connection_t *edgebase = dirbase->linked_conn;
+  const edge_connection_t *edgeconn = privcount_to_const_exit_conn(edgebase);
+  if (!edgeconn) {
+    return;
+  }
+
+  /* Find the corresponding or circuit.
+   * This doesn't actually modify edgeconn */
+  or_circuit_t *orcirc = privcount_get_exit_or_circ(
+                                                (edge_connection_t *)edgeconn,
+                                                NULL);
+  if (!orcirc) {
+    return;
+  }
+
+  /* And finally... */
+  orcirc->privcount_hs_version_number = hs_version_number;
+
+  if (is_store) {
+    orcirc->privcount_circuit_service_hsdir = 1;
+  } else {
+    orcirc->privcount_circuit_client_hsdir = 1;
+  }
+}
+
+/* Is orcirc a client-side HSDir circuit that ends at this relay?
+ * NULL connections are not classified as HSDor connections. */
+static int
+privcount_circuit_is_client_hsdir(const or_circuit_t *orcirc)
+{
+  return orcirc && orcirc->privcount_circuit_client_hsdir;
+}
+
+/* Is orcirc a service-side HSDir circuit that ends at this relay?
+ * NULL connections are not classified as HSDor connections. */
+static int
+privcount_circuit_is_service_hsdir(const or_circuit_t *orcirc)
+{
+  return orcirc && orcirc->privcount_circuit_service_hsdir;
+}
+
+/* Is orcirc a HSDir circuit that ends at this relay?
+ * NULL connections are not classified as HSDor connections. */
+static int
+privcount_circuit_is_hsdir(const or_circuit_t *orcirc)
+{
+  return (privcount_circuit_is_client_hsdir(orcirc) ||
+          privcount_circuit_is_service_hsdir(orcirc));
+}
+
+/* Is orcirc an client-side intro circuit that ends at this relay?
+ * NULL circuits are not classified as intro circuits. */
+static int
+privcount_circuit_is_client_intro(const or_circuit_t *orcirc)
+{
+  /* Tor doesn't normally track client intro circuits, so we have to use
+   * our own flag */
+  return orcirc && orcirc->privcount_circuit_client_intro;
+}
+
+/* Is orcirc an service-side intro circuit that ends at this relay?
+ * NULL circuits are not classified as intro circuits. */
+static int
+privcount_circuit_is_service_intro(const or_circuit_t *orcirc)
+{
+  return (orcirc &&
+          PRIVCOUNT_TO_CIRC(orcirc)->purpose == CIRCUIT_PURPOSE_INTRO_POINT);
+}
+
+/* Is orcirc an intro circuit that ends at this relay?
+ * NULL circuits are not classified as intro circuits. */
+static int
+privcount_circuit_is_intro(const or_circuit_t *orcirc)
+{
+  return (privcount_circuit_is_client_intro(orcirc) ||
+          privcount_circuit_is_service_intro(orcirc));
+}
+
+/* Is orcirc a client-side rend circuit that ends at this relay?
+ * NULL circuits are not classified as rend circuits. */
+static int
+privcount_circuit_is_client_rend(const or_circuit_t *orcirc)
+{
+  /* Tor doesn't normally distinguish client and rend intro circuits after
+   * they are joined, so we have to use our own flag.
+   * We could use CIRCUIT_PURPOSE_REND_POINT_WAITING here, but it's redundant.
+   */
+  return orcirc && orcirc->privcount_circuit_client_rend;
+}
+
+/* Is orcirc a service-side rend circuit that ends at this relay?
+ * NULL circuits are not classified as rend circuits. */
+static int
+privcount_circuit_is_service_rend(const or_circuit_t *orcirc)
+{
+  /* Tor doesn't normally distinguish client and rend intro circuits after
+   * they are joined, so we have to use our own flag.
+   */
+  return orcirc && orcirc->privcount_circuit_service_rend;
+}
+
+/* Is orcirc a rend circuit that ends at this relay?
+ * NULL circuits are not classified as rend circuits. */
+static int
+privcount_circuit_is_rend(const or_circuit_t *orcirc)
+{
+  /* We could use !! orcirc->rend_splice or CIRCUIT_PURPOSE_REND_ESTABLISHED
+   * here, but they're redundant */
+  return (privcount_circuit_is_client_rend(orcirc) ||
+          privcount_circuit_is_service_rend(orcirc));
+}
+
+/* Is orcirc a client-side hidden service circuit that ends at this relay?
+ * NULL circuits are not classified as hidden service circuits. */
+static int
+privcount_circuit_is_client_hs(const or_circuit_t *orcirc)
+{
+  return (privcount_circuit_is_client_hsdir(orcirc) ||
+          privcount_circuit_is_client_intro(orcirc) ||
+          privcount_circuit_is_client_rend(orcirc));
+}
+
+/* Silence compiler unused function warnings */
+#if 0
+
+/* Is orcirc a service-side hidden service circuit that ends at this relay?
+ * NULL circuits are not classified as hidden service circuits. */
+static int
+privcount_circuit_is_service_hs(const or_circuit_t *orcirc)
+{
+  return (privcount_circuit_is_service_hsdir(orcirc) ||
+          privcount_circuit_is_service_intro(orcirc) ||
+          privcount_circuit_is_service_rend(orcirc));
+}
+
+#endif
+
+/* Silence compiler unused function warnings */
+#if 0
+
+/* Is orcirc a hidden service circuit that ends at this relay?
+ * NULL circuits are not classified as hidden service circuits. */
+static int
+privcount_circuit_is_hs(const or_circuit_t *orcirc)
+{
+  return (privcount_circuit_is_client_hs(orcirc) ||
+          privcount_circuit_is_service_hs(orcirc));
+}
+
+#endif
+
+/* If orcirc is hidden service directory or intro circuit that ends at this
+ * relay, return the hidden service version number for this circuit.
+ * (Due to padding and cell encryption, it's not possible to tell the
+ * hidden service version number on rendezvous circuits.)
+ * Returns 0 for NULL circuits, rend circuits, and all other circuits. */
+static int
+privcount_circuit_hs_version_number(const or_circuit_t *orcirc)
+{
+  if (privcount_circuit_is_hsdir(orcirc) ||
+      privcount_circuit_is_intro(orcirc)) {
+    return orcirc->privcount_hs_version_number;
+  } else {
+    return 0;
+  }
+}
+
+/* Set the client sink fields in client_orcirc from service_orcirc */
+void
+privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
+                                const or_circuit_t *service_orcirc)
+{
+  if (BUG(!client_orcirc) || BUG(!service_orcirc) ||
+      BUG(!privcount_circuit_is_client_intro(client_orcirc)) ||
+      BUG(!privcount_circuit_is_service_intro(service_orcirc)) ||
+      BUG(!service_orcirc->p_chan)) {
+    return;
+  }
+
+  /* There's no service to client link here: intro sinks accept intro cells
+   * from many clients */
+
+  client_orcirc->privcount_intro_sink_p_chan_global_identifier =
+                                    service_orcirc->p_chan->global_identifier;
+  client_orcirc->privcount_intro_sink_p_circ_id = service_orcirc->p_circ_id;
+}
+
+/* Get the most recent intro service sink circuit for this client intro tap
+ * circuit, if there was ever a sink and that sink still exists. Returns NULL
+ * for non-client intro circuits, and client intro circuits that never had
+ * a sink (or where the sink has been freed). */
+static const or_circuit_t *
+privcount_get_intro_client_sink(const or_circuit_t *client_orcirc)
+{
+  if (privcount_circuit_is_client_intro(client_orcirc)) {
+    /* Zero is a legal channel identifier, so we can't skip it here*/
+    const channel_t *service_p_chan = channel_find_by_global_id(
+                client_orcirc->privcount_intro_sink_p_chan_global_identifier);
+
+    if (!service_p_chan) {
+      return NULL;
+    }
+
+    /* Doesn't modify p_chan */
+    const circuit_t *service_circ =
+      circuit_get_by_circid_channel_even_if_marked(
+                client_orcirc->privcount_intro_sink_p_circ_id,
+                (channel_t *)service_p_chan);
+    const or_circuit_t *service_orcirc = privcount_to_const_or_circ(
+                service_circ);
+
+    if (!service_orcirc || service_orcirc->p_chan != service_p_chan ||
+        !privcount_circuit_is_service_intro(service_orcirc)) {
+      return NULL;
+    }
+
+    return service_orcirc;
+
+  } else {
+    return NULL;
+  }
+}
+
+/* Clear the client sink fields in orcirc */
+void
+privcount_clear_intro_client_sink(or_circuit_t *orcirc)
+{
+  if (!orcirc) {
+    return;
+  }
+
+  /* There's no service to client link here: intro sinks accept intro cells
+   * from many clients */
+
+  /* We'll never use this ID, they are allocated sequentially */
+  orcirc->privcount_intro_sink_p_chan_global_identifier = UINT64_MAX;
+  /* Use a placeholder value, which might be valid */
+  orcirc->privcount_intro_sink_p_circ_id = 0;
+}
+
+/* Get the rend splice circuit for this circuit, if it is an established rend
+ * circuit. Returns NULL for non-rend circuits, and rend circuits that aren't
+ * established. */
+static const or_circuit_t *
+privcount_get_rend_splice(const or_circuit_t *orcirc)
+{
+  if (privcount_circuit_is_rend(orcirc)) {
+    return orcirc->rend_splice;
+  } else {
+    return NULL;
+  }
+}
+
 /* Are conn or circ directory-related, and do they end at this relay?
  * NULL connections or circuits are not classified as directory-related. */
 static int
@@ -5941,53 +6328,6 @@ privcount_connection_is_dns_resolve(const connection_t* conn)
 }
 #endif
 
-/* Find the circuit for orcirc or exitconn
- * Either orcirc or exitconn may be NULL, if they are, the other is used.
- * If both are NULL, returns NULL. */
-static circuit_t*
-privcount_get_circuit(edge_connection_t* exitconn,
-                      or_circuit_t *orcirc)
-{
-  if (orcirc) {
-    return TO_CIRCUIT(orcirc);
-  } else if (exitconn) {
-    return circuit_get_by_edge_conn(exitconn);
-  } else {
-    return NULL;
-  }
-}
-
-/* Find the or_circuit for orcirc or exitconn
- * Either orcirc or exitconn may be NULL, if they are, the other is used.
- * If both are NULL, or an or_circuit can not be found, returns NULL. */
-or_circuit_t*
-privcount_get_or_circuit(edge_connection_t* exitconn,
-                         or_circuit_t *orcirc)
-{
-  if (orcirc) {
-    tor_assert_nonfatal(CIRCUIT_IS_ORCIRC(orcirc));
-    return orcirc;
-  } else {
-    circuit_t* circ = privcount_get_circuit(exitconn, orcirc);
-    if (circ && CIRCUIT_IS_ORCIRC(circ)) {
-      return TO_OR_CIRCUIT(circ);
-    } else {
-      return NULL;
-    }
-  }
-}
-
-/* Like privcount_get_or_circuit, but with casts that tell the compiler we're
- * not actually modifying anything */
-static const or_circuit_t*
-privcount_get_const_or_circuit(const edge_connection_t* exitconn,
-                               const or_circuit_t *orcirc)
-{
-  return (const or_circuit_t *)privcount_get_or_circuit(
-                                                (edge_connection_t *)exitconn,
-                                                (or_circuit_t *)orcirc);
-}
-
 /* Is exitconn an Exit (or BEGINDIR) connection, and does it end at this
  * relay?
  * If exitconn is NULL, returns 0. */
@@ -5998,7 +6338,7 @@ privcount_connection_is_exit(const edge_connection_t* exitconn)
     return 0;
   }
 
-  return TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
+  return PRIVCOUNT_TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
 }
 
 /* Is any stream in the linked list starting with exitconn an Exit
@@ -6022,17 +6362,19 @@ privcount_connection_list_any_is_exit(const edge_connection_t* exitconn)
 /* Is orcirc an origin circuit? (a circuit that originated here)
  * If orcirc is NULL, returns 0. */
 static int
-privcount_circuit_is_origin(const or_circuit_t *orcirc)
+privcount_circuit_is_origin(const circuit_t *circ)
 {
-  if (!orcirc) {
+  if (!circ) {
     return 0;
   }
 
   /* if the circuit started here, this is our own stream and we can ignore it
    */
-  if (CIRCUIT_IS_ORIGIN(TO_CIRCUIT(orcirc))) {
+  if (CIRCUIT_IS_ORIGIN(circ)) {
     return 1;
   }
+
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   if (!orcirc->p_chan) {
     return 1;
@@ -6052,9 +6394,10 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
 {
   if (exitconn) {
     /* look up orcirc from exitconn if it is NULL */
-    const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+    const or_circuit_t* oc = privcount_get_exit_const_or_circ(exitconn,
+                                                              orcirc);
 
-    if (privcount_circuit_is_origin(oc)) {
+    if (oc && privcount_circuit_is_origin(PRIVCOUNT_TO_CIRC(oc))) {
       return 0;
     }
 
@@ -6062,8 +6405,10 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
   }
 
   if (orcirc && !exitconn) {
+    const circuit_t *circ = PRIVCOUNT_TO_CIRC(orcirc);
+    tor_assert(circ);
 
-    if (privcount_circuit_is_origin(orcirc)) {
+    if (privcount_circuit_is_origin(circ)) {
       return 0;
     }
 
@@ -6097,7 +6442,8 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
  * If both are NULL, returns 0.
  */
 static int
-privcount_data_is_used(const connection_t* conn, const circuit_t *circ)
+privcount_is_used_for_legacy_events(const connection_t* conn,
+                                    const circuit_t *circ)
 {
   /* Ignore events and counters when PrivCount is disabled */
   if (!get_options()->EnablePrivCount) {
@@ -6111,7 +6457,7 @@ privcount_data_is_used(const connection_t* conn, const circuit_t *circ)
 
   /* if the circuit started here, this is our own stream and we can ignore it
    */
-  if (circ && CIRCUIT_IS_ORIGIN(circ)) {
+  if (circ && privcount_circuit_is_origin(circ)) {
     return 0;
   }
 
@@ -6126,14 +6472,14 @@ privcount_data_is_used(const connection_t* conn, const circuit_t *circ)
  * connection and circuit?
  * If orcirc is NULL, it is looked up from exitconn.
  * If exitconn is NULL, orcirc is checked. */
-int
-privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
-                                         const or_circuit_t *orcirc)
+static int
+privcount_is_used_for_legacy_stream_events(const edge_connection_t* exitconn,
+                                           const or_circuit_t *orcirc)
 {
-  const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+  const or_circuit_t* oc = privcount_get_exit_const_or_circ(exitconn, orcirc);
 
-  if (!privcount_data_is_used(exitconn ? TO_CONN(exitconn) : NULL,
-                              oc ? TO_CIRCUIT(oc) : NULL)) {
+  if (!privcount_is_used_for_legacy_events(PRIVCOUNT_TO_CONN(exitconn),
+                                           PRIVCOUNT_TO_CIRC(oc))) {
     return 0;
   }
 
@@ -6142,70 +6488,73 @@ privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
 }
 
 /* Should PrivCount count bytes for this connection and circuit?
- * See privcount_data_is_used_for_stream_events for argument descriptions. */
-int
-privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
-                                         const or_circuit_t *orcirc)
+ * See privcount_is_used_for_legacy_stream_events for argument descriptions. */
+static int
+privcount_is_used_for_legacy_byte_counters(const edge_connection_t* exitconn,
+                                           const or_circuit_t *orcirc)
 {
-  /* These events use byte counts via edge_connection_t's privcount_n_read or
-   * privcount_n_written. */
+  /* These events use byte counts via edge_connection_t's
+   * privcount_n_exit_bytes_inbound or privcount_n_exit_bytes_outbound. */
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED) &&
-      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE)) {
     return 0;
   }
 
   /* Byte counts use the same checks as stream events, even though they are
    * reported by the stream end and circuit end events. */
-  return privcount_data_is_used_for_stream_events(exitconn, orcirc);
+  return privcount_is_used_for_legacy_stream_events(exitconn, orcirc);
 }
 
 /* Should PrivCount send circuit events for this circuit?
  * If circ is NULL, returns 0. */
-int
-privcount_data_is_used_for_circuit_events(const circuit_t *circ)
+static int
+privcount_is_used_for_legacy_circuit_events(const circuit_t *circ)
 {
   /* Circuits have a next and previous channel, so unlike stream events,
    * we don't look up connection(s) from the circuit. */
-  return privcount_data_is_used(NULL, circ);
+  return privcount_is_used_for_legacy_events(NULL, circ);
 }
 
 /* Should PrivCount count cells for this circuit?
- * See privcount_data_is_used_for_circuit_events for argument descriptions. */
-int
-privcount_data_is_used_for_cell_counters(const circuit_t *circ)
+ * See privcount_is_used_for_legacy_circuit_events for argument descriptions.
+ */
+static int
+privcount_is_used_for_legacy_cell_counters(const circuit_t *circ)
 {
-  /* These events use cell counts via edge_connection_t's privcount_n_cells_in
-   * or privcount_n_cells_out. */
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+  /* These events use cell counts via edge_connection_t's
+   * privcount_n_exit_cells_inbound or privcount_n_exit_cells_outbound. */
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE)) {
     return 0;
   }
 
   /* Cell counters are only used in circuit events, so the checks are the
    * same. */
-  return privcount_data_is_used_for_circuit_events(circ);
+  return privcount_is_used_for_legacy_circuit_events(circ);
 }
 
 /* Should PrivCount send connection events for this connection?
  * If conn is NULL, return 0. */
-int
-privcount_data_is_used_for_connection_events(const connection_t *conn)
+static int
+privcount_is_used_for_legacy_connection_events(const connection_t *conn)
 {
-  return privcount_data_is_used(conn, NULL);
+  return privcount_is_used_for_legacy_events(conn, NULL);
 }
 
 /* Should PrivCount send DNS events from this connection or circuit?
- * See privcount_data_is_used for argument descriptions. */
-int
-privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
-                                      const or_circuit_t *orcirc)
+ * See privcount_is_used_for_legacy_events for argument descriptions. */
+static int
+privcount_is_used_for_legacy_dns_events(const edge_connection_t* exitconn,
+                                        const or_circuit_t *orcirc)
 {
   /* DNS connections are never directory connections */
-  int is_dir = privcount_data_is_dir(exitconn ? TO_CONN(exitconn) : NULL,
-                                     orcirc ? TO_CIRCUIT(orcirc) : NULL);
+  int is_dir = privcount_data_is_dir(PRIVCOUNT_TO_CONN(exitconn),
+                                     PRIVCOUNT_TO_CIRC(orcirc));
   tor_assert_nonfatal(!is_dir);
 
-  return privcount_data_is_used(exitconn ? TO_CONN(exitconn) : NULL,
-                                orcirc ? TO_CIRCUIT(orcirc) : NULL);
+  return privcount_is_used_for_legacy_events(PRIVCOUNT_TO_CONN(exitconn),
+                                             PRIVCOUNT_TO_CIRC(orcirc));
 }
 
 /* Is the remote end of chan a relay in our current consensus?
@@ -6265,7 +6614,7 @@ privcount_is_client(const channel_t* chan)
 }
 
 /* Perform a 64-bit saturating add of a and b */
-uint64_t
+static uint64_t
 privcount_add_saturating(uint64_t a, uint64_t b)
 {
   /* Check before performing the addition to avoid overflow, even though it
@@ -6274,19 +6623,6 @@ privcount_add_saturating(uint64_t a, uint64_t b)
     return a + b;
   } else {
     return UINT64_MAX;
-  }
-}
-
-/* Check that input fits inside a signed 64-bit integer.
- * If input is greater than INT64_MAX, log a warning and return INT64_MAX.
- * Otherwise, return input. */
-int64_t
-privcount_check_range_i64(uint64_t input)
-{
-  if (BUG(input > INT64_MAX)) {
-    return INT64_MAX;
-  } else {
-    return input;
   }
 }
 
@@ -6429,45 +6765,68 @@ privcount_or_circuit_p_circ_id(const or_circuit_t *orcirc)
   }
 }
 
-/* Return orcirc->privcount_n_cells_in, or 0 if orcirc is NULL. */
+/* Return circ->n_chan->global_identifier, or 0 if any pointer in the chain
+ * is NULL. */
 static uint64_t
-privcount_or_circuit_n_cells_in(const or_circuit_t *orcirc)
+privcount_circuit_n_chan_global_identifier(const circuit_t *circ)
 {
-  if (orcirc) {
-    return orcirc->privcount_n_cells_in;
+  if (circ && circ->n_chan) {
+    return circ->n_chan->global_identifier;
   } else {
     return 0;
   }
 }
 
-/* Return orcirc->privcount_n_cells_out, or 0 if orcirc is NULL. */
-static uint64_t
-privcount_or_circuit_n_cells_out(const or_circuit_t *orcirc)
+/* Return circ->n_circ_id, or 0 if circ is NULL. */
+static circid_t
+privcount_circuit_n_circ_id(const circuit_t *circ)
 {
-  if (orcirc) {
-    return orcirc->privcount_n_cells_out;
+  if (circ) {
+    return circ->n_circ_id;
   } else {
     return 0;
   }
 }
 
-/* Return orcirc->privcount_n_read, or 0 if orcirc is NULL. */
+/* Return orcirc->privcount_n_exit_cells_inbound, or 0 if orcirc is NULL. */
 static uint64_t
-privcount_or_circuit_n_read(const or_circuit_t *orcirc)
+privcount_or_circuit_n_exit_cells_inbound(const or_circuit_t *orcirc)
 {
   if (orcirc) {
-    return orcirc->privcount_n_read;
+    return orcirc->privcount_n_exit_cells_inbound;
   } else {
     return 0;
   }
 }
 
-/* Return orcirc->privcount_n_written, or 0 if orcirc is NULL. */
+/* Return orcirc->privcount_n_exit_cells_outbound, or 0 if orcirc is NULL. */
 static uint64_t
-privcount_or_circuit_n_written(const or_circuit_t *orcirc)
+privcount_or_circuit_n_exit_cells_outbound(const or_circuit_t *orcirc)
 {
   if (orcirc) {
-    return orcirc->privcount_n_written;
+    return orcirc->privcount_n_exit_cells_outbound;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orcirc->privcount_n_exit_bytes_inbound, or 0 if orcirc is NULL. */
+static uint64_t
+privcount_or_circuit_n_exit_bytes_inbound(const or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return orcirc->privcount_n_exit_bytes_inbound;
+  } else {
+    return 0;
+  }
+}
+
+/* Return orcirc->privcount_n_exit_bytes_outbound, or 0 if orcirc is NULL. */
+static uint64_t
+privcount_or_circuit_n_exit_bytes_outbound(const or_circuit_t *orcirc)
+{
+  if (orcirc) {
+    return orcirc->privcount_n_exit_bytes_outbound;
   } else {
     return 0;
   }
@@ -6495,23 +6854,27 @@ privcount_edge_connection_port(const edge_connection_t *exitconn)
   }
 }
 
-/* Return exitconn->privcount_n_read, or 0 if exitconn is NULL. */
+/* Return exitconn->privcount_n_exit_bytes_inbound, or 0 if exitconn is
+ * NULL. */
 static uint64_t
-privcount_edge_connection_n_read(const edge_connection_t *exitconn)
+privcount_edge_connection_n_exit_bytes_inbound(
+                                            const edge_connection_t *exitconn)
 {
   if (exitconn) {
-    return exitconn->privcount_n_read;
+    return exitconn->privcount_n_exit_bytes_inbound;
   } else {
     return 0;
   }
 }
 
-/* Return exitconn->privcount_n_written, or 0 if exitconn is NULL. */
+/* Return exitconn->privcount_n_exit_bytes_outbound, or 0 if exitconn is NULL.
+ */
 static uint64_t
-privcount_edge_connection_n_written(const edge_connection_t *exitconn)
+privcount_edge_connection_n_exit_bytes_outbound(
+                                            const edge_connection_t *exitconn)
 {
   if (exitconn) {
-    return exitconn->privcount_n_written;
+    return exitconn->privcount_n_exit_bytes_outbound;
   } else {
     return 0;
   }
@@ -6712,8 +7075,7 @@ privcount_free_hs_v2_intro_points(smartlist_t *intro_points)
  * Returns an empty string for 0 intro_points.
  * Returns NULL for NULL intro_points. */
 static char *
-privcount_list_hs_v2_intro_point_fingerprints(
-                                              const smartlist_t *intro_points)
+privcount_list_hs_v2_intro_point_fingerprints(const smartlist_t *intro_points)
 {
   char *result_string = NULL;
 
@@ -6754,6 +7116,73 @@ privcount_list_hs_v2_intro_point_fingerprints(
   return result_string;
 }
 
+/* Allocate and return a string containing a list of the relay's flags.
+ * The returned string is never NULL.
+ * If rs is NULL, a newly allocated copy of an empty string is returned.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_list_routerstatus_flags(const routerstatus_t *rs)
+{
+  char *result_string = NULL;
+
+  if (!rs) {
+    return tor_strdup("");
+  }
+
+  /* Modified from routerstatus_format_entry() */
+  tor_asprintf(&result_string,
+               "%s%s%s%s%s%s%s%s%s%s",
+               /* These should stay in alphabetical order for consistency. */
+               rs->is_authority?",Authority":"",
+               rs->is_bad_exit?",BadExit":"",
+               rs->is_exit?",Exit":"",
+               rs->is_fast?",Fast":"",
+               rs->is_possible_guard?",Guard":"",
+               rs->is_hs_dir?",HSDir":"",
+               rs->is_flagged_running?",Running":"",
+               rs->is_stable?",Stable":"",
+               rs->is_v2_dir?",V2Dir":"",
+               rs->is_valid?",Valid":"");
+
+  tor_assert(result_string);
+
+  /* We want Flag,Flag,Flag, not ,Flag,Flag,Flag */
+  if (strlen(result_string) > 0) {
+    size_t orig_len = strlen(result_string);
+    tor_assert(*result_string == ',');
+
+    /* Copy everything after the first comma, including the terminating NUL,
+     * over the first comma */
+    memmove(result_string, result_string + 1, orig_len);
+
+    /* String manipulation is easy to get wrong */
+    tor_assert(*result_string != ',');
+    tor_assert(strlen(result_string) == orig_len - 1);
+  }
+
+  return result_string;
+}
+
+/** Like circuit_state_to_string, but with shorter strings with no spaces.
+ * Function to make circ-\>state human-readable.
+ * Returns a word that says what the circuit is waiting for. */
+static const char *
+privcount_circuit_state_to_controller_string(uint8_t state)
+{
+  static char buf[64];
+  switch (state) {
+    case CIRCUIT_STATE_BUILDING: return "build";
+    case CIRCUIT_STATE_ONIONSKIN_PENDING: return "crypto";
+    case CIRCUIT_STATE_CHAN_WAIT: return "connect";
+    case CIRCUIT_STATE_GUARD_WAIT: return "guard";
+    case CIRCUIT_STATE_OPEN: return "open";
+    default:
+      log_warn(LD_BUG, "Unknown circuit state %d", state);
+      tor_snprintf(buf, sizeof(buf), "unknown_%d", state);
+      return buf;
+  }
+}
+
 /* PrivCount event functions */
 
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
@@ -6776,7 +7205,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
   }
 
   /* Filter out directory data (at the directory) and non-exit connections */
-  if (privcount_data_is_used_for_dns_events(exitconn, orcirc)) {
+  if (privcount_is_used_for_legacy_dns_events(exitconn, orcirc)) {
     return;
   }
 
@@ -6825,7 +7254,7 @@ control_event_privcount_stream_bytes_transferred(
     return;
   }
 
-  if (BUG(!exitconn)) {
+  if (BUG(!exitconn) || !orcirc) {
     return;
   }
 
@@ -6833,7 +7262,7 @@ control_event_privcount_stream_bytes_transferred(
    * client-bound destinations.
    * This means we won't get hidden-service requests, directory requests, or
    * any non-exit connections */
-  if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+  if (!privcount_is_used_for_legacy_stream_events(exitconn, orcirc)) {
     return;
   }
 
@@ -6878,8 +7307,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     return;
   }
 
-  const or_circuit_t* orcirc = privcount_get_const_or_circuit(exitconn,
-                                                              NULL);
+  const or_circuit_t* orcirc = privcount_get_exit_const_or_circ(exitconn,
+                                                                NULL);
 
   /* Ignore failed resolves, and other missing circuits */
   if (!orcirc) {
@@ -6890,7 +7319,7 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
    * client-bound destinations.
    * This means we won't get hidden-service requests, directory requests, or
    * any non-exit connections, and we ignore failed resolves, as well. */
-  if (!privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+  if (!privcount_is_used_for_legacy_stream_events(exitconn, orcirc)) {
     return;
   }
 
@@ -6923,8 +7352,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
                      privcount_or_circuit_p_circ_id(orcirc),
                      privcount_edge_connection_stream_id(exitconn),
                      privcount_edge_connection_port(exitconn),
-                     privcount_edge_connection_n_read(exitconn),
-                     privcount_edge_connection_n_written(exitconn),
+                     privcount_edge_connection_n_exit_bytes_inbound(exitconn),
+                     privcount_edge_connection_n_exit_bytes_outbound(exitconn),
                      created_str,
                      now_str,
                      host_str,
@@ -6936,54 +7365,32 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   tor_free(addr_str);
 }
 
-/* Send a PrivCount circuit end event triggered on orcirc, which may be an
- * entry, exit, or middle connection.
+/* Send a legacy PrivCount circuit end event triggered on orcirc, which is a
+ * non-BEGINDIR OR circuit observed in any position (except the origin).
  * This event uses positional fields: order is important.
- * Sets the privcount_event_emitted flag in orcirc to ensure that each
- * circuit only emits one event.
- * orcirc must not be NULL. */
-void
-control_event_privcount_circuit_ended(or_circuit_t *orcirc)
+ * orcirc, created_str, now_str, p_addr, and n_addr must not be NULL. */
+static void
+control_event_privcount_circuit_ended(or_circuit_t *orcirc,
+                                      const char *created_str,
+                                      const char *now_str,
+                                      const char *p_addr,
+                                      int prev_is_client,
+                                      const char *n_addr,
+                                      int next_is_exit)
 {
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
-    return;
-  }
+  tor_assert(orcirc);
+  tor_assert(created_str);
+  tor_assert(now_str);
+  tor_assert(p_addr);
+  tor_assert(n_addr);
 
   /* Ignore events that have already been sent
    */
-  if (BUG(!orcirc) || orcirc->privcount_event_emitted) {
+  if (orcirc->privcount_legacy_event_emitted) {
     return;
   }
 
-  orcirc->privcount_event_emitted = 1;
-
-  /* Filter out circuit overhead (directory circuits at directories). */
-  if (!privcount_data_is_used_for_circuit_events(TO_CIRCUIT(orcirc))) {
-    return;
-  }
-
-  /* Filter out circuit events for circuits that started before this
-   * collection round */
-  if (!privcount_was_enabled_before(&orcirc->base_.timestamp_created,
-                                    get_options())) {
-    return;
-  }
-
-  /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
-  /* the difference between timestamp_created and timestamp_began only
-   * matters on clients */
-  char *created_str = privcount_timeval_to_epoch_str_dup(
-                                            &orcirc->base_.timestamp_created,
-                                            NULL);
-
-  /* we already know this is not an origin circ since we have a or_circuit_t
-   * struct. But orcirc->p_chan can still be NULL here. */
-  int prev_is_client = privcount_is_client(orcirc->p_chan);
-  int next_is_edge = privcount_data_is_exit(NULL, orcirc);
-
-  char *p_addr = privcount_chan_addr_to_str_dup(orcirc->p_chan);
-  char *n_addr = privcount_chan_addr_to_str_dup(orcirc->base_.n_chan);
+  orcirc->privcount_legacy_event_emitted = 1;
 
   /* ChanID, CircID, NCellsIn, NCellsOut, ReadBWExit, WriteBWExit, TimeStart,
    * TimeEnd, PrevIP, PrevIsClient, NextIP, NextIsEdge */
@@ -6993,16 +7400,930 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
                      " %s %s %s %d %s %d\r\n",
                      privcount_or_circuit_p_chan_global_identifier(orcirc),
                      privcount_or_circuit_p_circ_id(orcirc),
-                     privcount_or_circuit_n_cells_in(orcirc),
-                     privcount_or_circuit_n_cells_out(orcirc),
-                     privcount_or_circuit_n_read(orcirc),
-                     privcount_or_circuit_n_written(orcirc),
+                     privcount_or_circuit_n_exit_cells_inbound(orcirc),
+                     privcount_or_circuit_n_exit_cells_outbound(orcirc),
+                     privcount_or_circuit_n_exit_bytes_inbound(orcirc),
+                     privcount_or_circuit_n_exit_bytes_outbound(orcirc),
                      created_str,
                      now_str,
                      p_addr,
                      prev_is_client,
                      n_addr,
-                     next_is_edge);
+                     next_is_exit);
+}
+
+/* Add tagged fields for the circuit ids in circ to fields, prefixed using
+ * prefix, if present. */
+static void
+privcount_add_circuit_id_fields(smartlist_t *fields,
+                                const circuit_t *circ,
+                                const char *prefix)
+{
+  tor_assert(fields);
+
+  if (!prefix) {
+    prefix = "";
+  }
+
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
+
+  if (orcirc) {
+    smartlist_add_asprintf(fields, "%sPreviousChannelId=%" PRIu64,
+                        prefix,
+                        privcount_or_circuit_p_chan_global_identifier(orcirc));
+
+    smartlist_add_asprintf(fields, "%sPreviousCircuitId=%" PRIu32,
+                           prefix, privcount_or_circuit_p_circ_id(orcirc));
+  }
+
+  if (circ) {
+    smartlist_add_asprintf(fields, "%sNextChannelId=%" PRIu64,
+                           prefix,
+                           privcount_circuit_n_chan_global_identifier(circ));
+
+    smartlist_add_asprintf(fields, "%sNextCircuitId=%" PRIu32,
+                           prefix, privcount_circuit_n_circ_id(circ));
+  }
+}
+
+/* Add the common cell and circuit tagged fields in circ to fields,
+ * prefixing names with prefix, or the empty string if it is NULL.
+ * Does not include the EventTimestamp field, which is set in each event. */
+static void
+privcount_add_circuit_common_fields(smartlist_t *fields,
+                                    const circuit_t *circ,
+                                    const char *prefix)
+{
+  tor_assert(fields);
+
+  if (!circ) {
+    return;
+  }
+
+  if (!prefix) {
+    prefix = "";
+  }
+
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
+
+  /* Position flags */
+  const int is_origin = privcount_circuit_is_origin(circ);
+  const int is_entry = orcirc && privcount_is_client(orcirc->p_chan);
+  const int next_is_relay = privcount_is_consensus_relay(circ->n_chan);
+  const int is_mid = !is_origin && !is_entry && next_is_relay;
+  const int is_end = !is_origin && !next_is_relay;
+  const int is_single_hop = is_entry && is_end;
+
+  /* End Type flags */
+  const int is_hsdir = privcount_circuit_is_hsdir(orcirc);
+  const int is_intro = privcount_circuit_is_intro(orcirc);
+  const int is_rend = privcount_circuit_is_rend(orcirc);
+
+  const int is_dir = privcount_circuit_is_dir(circ) && !is_hsdir;
+  const int is_exit = (privcount_data_is_exit(NULL, orcirc) &&
+                       !is_dir && !is_hsdir);
+
+  /* Extra Hidden Service flags */
+  const int is_hs = is_hsdir || is_intro || is_rend;
+  const int is_client_hs = privcount_circuit_is_client_hs(orcirc);
+  const int hs_version_number = privcount_circuit_hs_version_number(orcirc);
+
+  /* Extra Circuit flags */
+
+  /* This flag is sometimes set to the line number, but all we want is
+   * a boolean */
+  const int is_marked_for_close = !! circ->marked_for_close;
+
+  if (is_single_hop) {
+    /* Single hop circuits can't be origin or middle */
+    if (is_origin || is_mid) {
+      log_warn(LD_BUG, "Bad %s%sSingle Hop position: IsOrigin: %d, "
+               "IsEntry: %d, IsMid: %d, IsEnd: %d",
+               prefix, *prefix ? "" : " ",
+               is_origin, is_entry, is_mid, is_end);
+    }
+  } else {
+    /* Exactly one of these should be true for multi-hop circuits */
+    if (is_origin + is_entry + is_mid + is_end != 1) {
+      log_warn(LD_BUG, "Bad %s%sMulti-Hop position: IsOrigin: %d, "
+               "IsEntry: %d, IsMid: %d, IsEnd: %d",
+               prefix, *prefix ? "" : " ",
+               is_origin, is_entry, is_mid, is_end);
+    }
+  }
+
+  /* We could compress these fields by:
+   * - using CircuitPositionString
+   * - using CircuitEndTypeString, but special-casing intro taps
+   */
+
+  /* This is redundant due to purpose, but can be used for filtering */
+  if (is_origin) {
+    smartlist_add_asprintf(fields, "%sIsOriginFlag=1", prefix);
+  }
+
+  if (is_entry) {
+    smartlist_add_asprintf(fields, "%sIsEntryFlag=1", prefix);
+  }
+
+  if (is_mid) {
+    smartlist_add_asprintf(fields, "%sIsMidFlag=1", prefix);
+  }
+
+  /* If this flag is true, the next node is not an OR node.
+   * The circuit ends here. */
+  if (is_end) {
+    smartlist_add_asprintf(fields, "%sIsEndFlag=1", prefix);
+  }
+
+  /* End subcategories: exactly one of these should be true if End is true
+   * and the circuit was actually used, otherwise one might be true,
+   * depending on whether the client told us what it wanted the circuit for
+   */
+  if (is_end && BUG(is_exit + is_dir + is_hsdir + is_intro + is_rend > 1)) {
+    log_warn(LD_BUG, "Bad %s%sEnd IsExit: %d, IsDir: %d, IsHSDir: %d, "
+             "IsIntro: %d, IsRend: %d",
+             prefix, *prefix ? "" : " ",
+             is_exit, is_dir, is_hsdir, is_intro, is_rend);
+  }
+
+  /* An Exit circuit at an Exit: data is exchanged with
+   * Internet servers accessed via edge connections.
+   * (Excludes BEGINDIR requests, they are internal.) */
+  if (is_exit) {
+    smartlist_add_asprintf(fields, "%sIsExitFlag=1", prefix);
+  }
+
+  /* A BEGINDIR circuit, which would otherwise look like an
+   * Exit circuit. Includes bridge and directory mirror requests, but
+   * excludes HSDir requests. Data is exchanged with linked local directory
+   * connection(s) via edge connection(s). */
+  if (is_dir) {
+    smartlist_add_asprintf(fields, "%sIsDirFlag=1", prefix);
+  }
+
+  /* A BEGINDIR circuit that has been used for an
+   * HSDir request. Newly opened BEGINDIR circuits will have the Dir flag
+   * set until a request is made. Data is exchanged with linked local directory
+   * connection(s) via edge connection(s). */
+  if (is_hsdir) {
+    smartlist_add_asprintf(fields, "%sIsHSDirFlag=1", prefix);
+  }
+
+  /* Intro circuits are mostly end circuits, but if client intro fails, the
+   * client extends the circuit to another intro point and tries again.
+   * So it is possible to have an intro flag in the multi-hop Entry or Mid
+   * position.
+   * Data transfers:
+   * - on the service side, received from any client intro ends or intro taps,
+   * - on the client side at an end, sent to the service intro, or
+   * - on the client side in the middle, sent to the service intro
+   *   (as a single-cell tap: a leaky pipe topology) and exchanged with the
+   *   next intro point chosen by the client over an extended circuit */
+  if (is_intro) {
+    smartlist_add_asprintf(fields, "%sIsIntroFlag=1", prefix);
+  }
+
+  /* A rendezvous circuit. Data is exchanged with the renezvous splice circuit.
+   */
+  if (is_rend) {
+    smartlist_add_asprintf(fields, "%sIsRendFlag=1", prefix);
+  }
+
+  /* Other fields */
+
+  if (is_hs) {
+    /* If the circuit is HSDir, Intro, or Rend, and
+     * CircuitIsHSClientSideFlag=0, it's a service-side circuit */
+    smartlist_add_asprintf(fields, "%sIsHSClientSideFlag=%d",
+                           prefix, is_client_hs);
+  }
+
+  if (hs_version_number) {
+    /* If the circuit is HSDir or Intro, then
+     * we know the hidden service version */
+    smartlist_add_asprintf(fields, "%sHiddenServiceVersionNumber=%d",
+                           prefix, hs_version_number);
+  }
+
+  if (is_marked_for_close) {
+    smartlist_add_asprintf(fields, "%sIsMarkedForCloseFlag=1",
+                           prefix);
+  }
+
+  privcount_add_circuit_id_fields(fields, circ, prefix);
+}
+
+/* Send a PrivCount circuit cell event triggered on:
+ * - chan, which is the channel the cell was sent or received on.
+ *   chan can be NULL.
+ * - circ, which can be any type of circuit in any position in the circuit,
+ *   including the origin. circ can be NULL.
+ * - cell, which contains the circuit_id and command for the cell.
+ *   cell must not be NULL.
+ * - is_sent, which is PRIVCOUNT_CELL_SENT for sent cells, and
+ *   PRIVCOUNT_CELL_RECEIVED for received cells.
+ * - is_recognized, which is:
+ *     1 for received outbound cells meant for this relay,
+ *     0 for received inbound cells and outbound cells meant for other relays,
+ *     NULL for received cells dropped before it is known whether they are
+ *     meant for this relay or not, and for sent cells.
+ * - was_relay_crypt_successful, which is:
+ *     1 when relay_crypt on a received cell succeeded,
+ *     0 when relay_crypt on a received cell failed, and
+ *     NULL if a received cell was dropped before relay_crypt was called on it,
+ *      or for sent cells.
+ * This event uses tagged parameters: each field is preceded by 'FieldName='.
+ * Order is unimportant. Unknown fields are left out.
+ * Also calls privcount_cell_transfer() to update the circuit cell counts. */
+void
+control_event_privcount_circuit_cell(const channel_t *chan,
+                                     circuit_t *circ,
+                                     const cell_t *cell,
+                                     int is_sent,
+                                     const int *is_recognized,
+                                     const int *was_relay_crypt_successful)
+{
+  /* Just in case */
+  if (!get_options()->EnablePrivCount) {
+    return;
+  }
+
+  /* chan can be NULL */
+  /* circ can be NULL */
+  tor_assert(cell);
+  tor_assert(is_sent == PRIVCOUNT_CELL_SENT ||
+             is_sent == PRIVCOUNT_CELL_RECEIVED);
+  tor_assert(!is_recognized || *is_recognized == 0 ||
+             *is_recognized == 1);
+  tor_assert(!was_relay_crypt_successful || *was_relay_crypt_successful == 0 ||
+             *was_relay_crypt_successful == 1);
+
+  /* Filter out circuit events for circuits that started before this
+   * collection round. If we don't have a circuit, there will be no circuit
+   * fields in the event. Most clients will want to filter NULL circuits out
+   * as well. */
+  if (circ && !privcount_was_enabled_before(&circ->timestamp_created,
+                                    get_options())) {
+    return;
+  }
+
+  /* Count this cell for the circuit */
+  privcount_cell_transfer(circ, chan, is_sent, 0);
+
+  /* Now we've counted the cell on the circuit, skip sending the event if it's
+   * not wanted */
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CELL)) {
+    return;
+  }
+
+  /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* No relative timestamps: they are much easier to calculate in python */
+  smartlist_add(fields,
+                privcount_timeval_now_to_epoch_str_dup("EventTimestamp="));
+
+  /* IsSentFlag >      1                0
+   * v IsOutboundFlag
+   * 1                 SENT TO_SERVER   RECEIVED FROM_CLIENT
+   * 0                 SENT TO_CLIENT   RECEIVED FROM_SERVER
+   * (missing)         SENT UNKNOWN     RECEIVED UNKNOWN
+  */
+  smartlist_add_asprintf(fields, "IsSentFlag=%d",
+                         is_sent);
+
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
+
+  if (chan && circ) {
+    const channel_t* n_chan = circ->n_chan;
+    const channel_t* p_chan = orcirc ? orcirc->p_chan : NULL;
+
+    if (n_chan == chan && p_chan == chan) {
+      /* If chan is both channels, there is a bug here */
+      tor_assert_nonfatal_unreached();
+    } else if (n_chan == chan) {
+      smartlist_add_asprintf(fields, "IsOutboundFlag=1");
+    } else if (p_chan == chan) {
+      smartlist_add_asprintf(fields, "IsOutboundFlag=0");
+    }
+  }
+
+  /* Leave out cell_num */
+
+  /* We could prefix with Circuit here, but let's not for consistency and
+   * efficiency */
+  privcount_add_circuit_common_fields(fields, circ, NULL);
+
+  const char *cell_command_string = cell_command_to_string(cell->command);
+  if (cell_command_string) {
+    char *clean_str = privcount_cleanse_tagged_str_dup(cell_command_string);
+    smartlist_add_asprintf(fields, "CellCommandString=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  /* Extracting the relay command is unreliable.
+   * But let's try anyway. */
+  int try_relay_command = 0;
+  if (is_sent == PRIVCOUNT_CELL_SENT) {
+    /* Tor doesn't set the relay commands until after the layer where we
+     * intercept cell events */
+    try_relay_command = 0;
+  } else {
+    if (is_recognized != NULL && *is_recognized == 0) {
+      /* This cell is not for us, so there is no relay command */
+      try_relay_command = 0;
+    } else if (was_relay_crypt_successful != NULL &&
+               *was_relay_crypt_successful == 0) {
+      /* This cell did not decrypt, so any command would be garbage */
+      try_relay_command = 0;
+    } else {
+      /* We should be able to read cells we can decrypt */
+      try_relay_command = 1;
+    }
+  }
+
+  if (try_relay_command) {
+    relay_header_t rh;
+    relay_header_unpack(&rh, cell->payload);
+    /* If we had access to the path, we could check integrity here and really
+     * be sure that the header is valid */
+    if (rh.recognized == 0 && rh.length <= RELAY_PAYLOAD_SIZE) {
+      const char *relay_command_string = relay_command_to_string(rh.command);
+      if (relay_command_string &&
+          strcmpstart(relay_command_string, "Unrecognized")) {
+        char *clean_str = privcount_cleanse_tagged_str_dup(
+                                                        relay_command_string);
+        smartlist_add_asprintf(fields, "RelayCommandString=%s",
+                               clean_str);
+        tor_free(clean_str);
+      } else {
+        /* The cell had a good recognized and length, but a bad command.
+         * Just let it pass. */
+
+        /* Log a stack trace for debugging, so we fix bugs where we look at
+         * bad cells
+        tor_assert_nonfatal_unreached();
+         */
+      }
+    } else {
+      /* The cell had a bad recognized and length.
+       * Just let it pass. */
+
+      /* Log a stack trace for debugging, so we fix bugs where we look at
+       * bad cells
+      tor_assert_nonfatal_unreached();
+       */
+    }
+  }
+
+  /* Extra fields that weren't in the example code */
+
+  if (is_recognized) {
+    smartlist_add_asprintf(fields, "IsRecognizedFlag=%d",
+                           *is_recognized);
+  }
+
+  if (was_relay_crypt_successful) {
+    smartlist_add_asprintf(fields, "WasRelayCryptSuccessfulFlag=%d",
+                           *was_relay_crypt_successful);
+  }
+
+  /* Now create the final string */
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory, so the string will never be empty */
+  tor_assert(len > 0);
+
+  send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CELL,
+                     "650 PRIVCOUNT_CIRCUIT_CELL %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
+}
+
+/* If conn is an exit conn, add byte_count bytes to its legacy privcount byte
+ * counters.
+ * If conn has a corresponding or_circuit, add bytes to its legacy counters.
+ * Then send the corresponding stream event.
+ * This function is called when bytes are successfully sent on a connection,
+ * excluding TLS negotiation bytes.
+ *
+ * Tor can only map connections to circuits 1:1 when the connection is an edge
+ * connection. That is, it is the exit (including begindir) for the circuit.
+ * Other transfers can be counted at the cell level, or at the onnection level.
+ */
+void
+privcount_byte_transfer(connection_t *conn,
+                        uint64_t byte_count,
+                        int is_outbound,
+                        int is_legacy_count)
+{
+  if (!conn || byte_count <= 0) {
+    return;
+  }
+
+  if (conn->type == CONN_TYPE_EXIT) {
+    edge_connection_t *exitconn = privcount_to_exit_conn(conn);
+    or_circuit_t* orcirc = privcount_get_exit_or_circ(exitconn, NULL);
+    /* Is this an external connection, or an internal linked connection? */
+    const int is_external = privcount_is_used_for_legacy_byte_counters(
+                                                                      exitconn,
+                                                                      orcirc);
+
+    /* Handle the legacy cases first */
+    if (is_legacy_count && is_external) {
+      if (is_outbound) {
+        exitconn->privcount_n_exit_bytes_outbound = privcount_add_saturating(
+                                    exitconn->privcount_n_exit_bytes_outbound,
+                                    byte_count);
+        orcirc->privcount_n_exit_bytes_outbound = privcount_add_saturating(
+                                    orcirc->privcount_n_exit_bytes_outbound,
+                                    byte_count);
+      } else {
+        exitconn->privcount_n_exit_bytes_inbound = privcount_add_saturating(
+                                    exitconn->privcount_n_exit_bytes_inbound,
+                                    byte_count);
+        orcirc->privcount_n_exit_bytes_inbound = privcount_add_saturating(
+                                    orcirc->privcount_n_exit_bytes_inbound,
+                                    byte_count);
+      }
+    }
+
+    if (is_legacy_count &&
+        privcount_is_used_for_legacy_stream_events(exitconn, orcirc)) {
+      control_event_privcount_stream_bytes_transferred(exitconn, orcirc,
+                                                       byte_count,
+                                                       is_outbound);
+    }
+  }
+
+  /* Also count directory bytes on BEGINDIR circuits */
+  if (conn->linked) {
+
+    /* Linked connections never write to sockets: they transfer
+     * (read and write) bytes when other connections read (inbound).
+     * So we will always see "inbound" reads here. */
+    if (BUG(is_outbound)) {
+      return;
+    }
+
+    /* If this isn't the edge connection, use the linked edge connection */
+    connection_t *econn =  CONN_IS_EDGE(conn) ? conn : conn->linked_conn;
+    connection_t *dconn = !CONN_IS_EDGE(conn) ? conn : conn->linked_conn;
+
+    /* If it's not a directory connection, something is buggy. */
+    if (dconn && BUG(dconn->type != CONN_TYPE_DIR)) {
+      log_warn(LD_BUG, "Connection: %p Type: %d Purpose: %d State: %d "
+                "Linked Connection: %p Type: %d Purpose: %d State: %d "
+                "Chosen Connection: Edge: %s Dir: %s",
+               conn, conn->type, conn->purpose, conn->state,
+               conn->linked_conn,
+               conn->linked_conn ? conn->linked_conn->type : -1,
+               conn->linked_conn ? conn->linked_conn->purpose : -1,
+               conn->linked_conn ? conn->linked_conn->state : -1,
+               econn == conn ? "Connection" : "Linked Connection",
+               dconn == conn ? "Connection" : "Linked Connection");
+      return;
+    }
+
+    /* We don't count directory bytes on origin connections */
+
+    /* If the linked connection has closed, we can't add to its counters. */
+    if (econn && econn->type == CONN_TYPE_EXIT) {
+
+      /* At the origin, outbound BEGINDIR bytes are read from the origin's
+       * directory connection, and written to the linked AP connection.
+       * At the exit, outbound BEGINDIR bytes are read from exit connections,
+       * and written to the linked directory connection.
+       */
+      is_outbound = (econn->type == CONN_TYPE_EXIT);
+
+      edge_connection_t *exitconn = privcount_to_exit_conn(econn);
+      or_circuit_t* orcirc = privcount_get_exit_or_circ(exitconn, NULL);
+
+      if (is_outbound) {
+        exitconn->privcount_n_dir_bytes_outbound = privcount_add_saturating(
+                                    exitconn->privcount_n_dir_bytes_outbound,
+                                    byte_count);
+        orcirc->privcount_n_dir_bytes_outbound = privcount_add_saturating(
+                                    orcirc->privcount_n_dir_bytes_outbound,
+                                    byte_count);
+      } else {
+        exitconn->privcount_n_dir_bytes_inbound = privcount_add_saturating(
+                                    exitconn->privcount_n_dir_bytes_inbound,
+                                    byte_count);
+        orcirc->privcount_n_dir_bytes_inbound = privcount_add_saturating(
+                                    orcirc->privcount_n_dir_bytes_inbound,
+                                    byte_count);
+      }
+    }
+  }
+}
+
+/* If conn is an exit conn, add 1 cell to its legacy privcount cell counters.
+ * If conn has a corresponding or_circuit, add a cell to the circ or orcirc
+ * counters, depending on is_legacy_count.
+ * Unlike control_event_privcount_circuit(), legacy events are not
+ * included in tagged events: they are counted at different locations.
+ * Unlike privcount_byte_transfer(), this is called by the cell event,
+ * and also called by channel_flush_from_first_active_circuit() for legacy
+ * cell counts.
+ */
+void
+privcount_cell_transfer(circuit_t *circ,
+                        const channel_t *chan,
+                        int is_sent,
+                        int is_legacy_count)
+{
+  if (!chan || !circ) {
+    return;
+  }
+
+  or_circuit_t *orcirc = privcount_to_or_circ(circ);
+
+  if (orcirc && BUG(orcirc->p_chan == circ->n_chan)) {
+    return;
+  }
+
+  if (is_legacy_count && is_sent && orcirc &&
+      privcount_is_used_for_legacy_cell_counters(circ)) {
+    /* Inbound */
+    if (chan == orcirc->p_chan) {
+      orcirc->privcount_n_exit_cells_inbound = privcount_add_saturating(
+                                      orcirc->privcount_n_exit_cells_inbound,
+                                      1);
+    }
+    /* Outbound */
+    if (chan == circ->n_chan) {
+      orcirc->privcount_n_exit_cells_outbound = privcount_add_saturating(
+                                      orcirc->privcount_n_exit_cells_outbound,
+                                      1);
+    }
+  }
+
+  if (!is_legacy_count) {
+    /* Inbound */
+    if (orcirc && chan == orcirc->p_chan) {
+      if (is_sent) {
+        circ->privcount_n_cells_sent_inbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_sent_inbound,
+                                    1);
+      } else {
+        circ->privcount_n_cells_received_inbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_received_inbound,
+                                    1);
+      }
+    }
+    /* Outbound */
+    if (chan == circ->n_chan) {
+      if (is_sent) {
+        circ->privcount_n_cells_sent_outbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_sent_outbound,
+                                    1);
+      } else {
+        circ->privcount_n_cells_received_outbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_received_outbound,
+                                    1);
+      }
+    }
+  }
+}
+
+/* Add the tagged fields for node to fields, prefixing the keys with prefix */
+static void
+privcount_add_node_fields(smartlist_t *fields,
+                          const node_t *node,
+                          const char *prefix)
+{
+  tor_assert(fields);
+
+  if (!prefix) {
+    prefix = "";
+  }
+
+  if (node) {
+
+    /* Fingerprint */
+
+    char fingerprint[HEX_DIGEST_LEN+1];
+    base16_encode(fingerprint, HEX_DIGEST_LEN+1,
+                  node->identity,
+                  DIGEST_LEN);
+    /* Redundant: a hex string will always be allowed in a tagged event */
+    tor_assert(privcount_tagged_str_is_clean(fingerprint));
+
+    smartlist_add_asprintf(fields, "%sFingerprint=%s",
+                           prefix, fingerprint);
+
+    /* Don't add nickname and addr, they're not that important
+     * (and we already have previous and next addresses in this event) */
+
+    if (node->rs) {
+      char *relay_flags = privcount_list_routerstatus_flags(node->rs);
+      /* Assume the flag list is ok to use as an event value */
+      smartlist_add_asprintf(fields, "%sRelayFlagList=%s",
+                             prefix, relay_flags);
+      tor_free(relay_flags);
+    }
+  }
+}
+
+/* Send a PrivCount circuit close event triggered on circ, which can be any
+ * type of circuit, and in any position in the circuit (including the origin).
+ * This event uses tagged parameters: each field is preceded by 'FieldName='.
+ * Order is unimportant. Unknown fields are left out.
+ * circ, created_str, now_str, p_addr, and n_addr must not be NULL. */
+static void
+control_event_privcount_circuit_close(circuit_t *circ,
+                                      int is_legacy_circuit_end,
+                                      const char *created_str,
+                                      const char *now_str,
+                                      const char *p_addr,
+                                      const char *n_addr)
+{
+  tor_assert(circ);
+  tor_assert(created_str);
+  tor_assert(now_str);
+  tor_assert(p_addr);
+  tor_assert(n_addr);
+
+  /* Ignore events that have already been sent
+   */
+  if (circ->privcount_event_emitted) {
+    return;
+  }
+
+  circ->privcount_event_emitted = 1;
+
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
+
+    /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* Use generic names so coding the injector is easier */
+  tor_assert(privcount_tagged_str_is_clean(now_str));
+  smartlist_add_asprintf(fields, "EventTimestamp=%s",
+                         now_str);
+
+  tor_assert(privcount_tagged_str_is_clean(created_str));
+  smartlist_add_asprintf(fields, "CreatedTimestamp=%s",
+                         created_str);
+
+  /* Use this flag to transition from the legacy circuit event */
+  smartlist_add_asprintf(fields, "IsLegacyCircuitEndEventFlag=%d",
+                         is_legacy_circuit_end);
+
+  privcount_add_circuit_common_fields(fields, circ, NULL);
+
+  if (circ) {
+    /* What state was this circuit in when it closed?
+     * This string says what the circuit is waiting for
+     * There is no closed state, check IsMarkedForCloseFlag for that */
+    const char *state = privcount_circuit_state_to_controller_string(
+                                                                  circ->state);
+    if (state) {
+      tor_assert(privcount_tagged_str_is_clean(state));
+      smartlist_add_asprintf(fields, "StateString=%s",
+                             state);
+    }
+
+    /* What is this circuit for?
+     * And if it is an HS circuit, what state was it in when it closed?
+     */
+
+    smartlist_add_asprintf(fields, "PurposeCode=%" PRIu8,
+                           circ->purpose);
+
+    /* These are redundant, but are much easier to read
+     * privcount_add_circuit_common_fields() adds an integer purpose code and
+     * some summary flags */
+    const char *purpose = circuit_purpose_to_controller_string(circ->purpose);
+    const char *hs_purpose = circuit_purpose_to_controller_hs_state_string(
+                                                                circ->purpose);
+
+    if (purpose) {
+      char *clean_str = privcount_cleanse_tagged_str_dup(purpose);
+      smartlist_add_asprintf(fields, "PurposeString=%s",
+                             clean_str);
+      tor_free(clean_str);
+    }
+
+    if (hs_purpose) {
+      char *clean_str = privcount_cleanse_tagged_str_dup(hs_purpose);
+      smartlist_add_asprintf(fields, "HSStateString=%s",
+                             clean_str);
+      tor_free(clean_str);
+    }
+  }
+
+  if (orcirc && orcirc->p_chan) {
+    /* This is actually the address from the channel, not the node object */
+    tor_assert(privcount_tagged_str_is_clean(p_addr));
+    smartlist_add_asprintf(fields, "PreviousNodeIPAddress=%s",
+                           p_addr);
+
+    const node_t* prev_node = node_get_by_id(orcirc->p_chan->identity_digest);
+    privcount_add_node_fields(fields, prev_node, "PreviousNode");
+  }
+
+  if (circ && circ->n_chan) {
+    /* This is actually the address from the channel, not the node object */
+    tor_assert(privcount_tagged_str_is_clean(n_addr));
+    smartlist_add_asprintf(fields, "NextNodeIPAddress=%s",
+                           n_addr);
+
+    const node_t* next_node = node_get_by_id(circ->n_chan->identity_digest);
+    privcount_add_node_fields(fields, next_node, "NextNode");
+  }
+
+  /* If it's a client intro circuit, also output the flags on the (most
+   * recent) service intro it used, if any. Each tap has one sink, each sink
+   * can have many taps, so we only report the sink for each tap.  */
+  const or_circuit_t *intro_sink = privcount_get_intro_client_sink(orcirc);
+  if (intro_sink) {
+    privcount_add_circuit_common_fields(fields,
+                                        PRIVCOUNT_TO_CIRC(intro_sink),
+                                        "IntroClientSink");
+  }
+
+  /* If it's a rendezvous circuit, also output the flags on the spliced
+   * circuit. A pair of established rend circuits are spliced to each other.
+   */
+  const or_circuit_t *rend_splice = privcount_get_rend_splice(orcirc);
+  if (rend_splice) {
+    privcount_add_circuit_common_fields(fields,
+                                        PRIVCOUNT_TO_CIRC(rend_splice),
+                                        "RendSplice");
+  }
+
+  if (circ) {
+    /* Sent to client */
+    smartlist_add_asprintf(fields, "InboundSentCellCount=%" PRIu64,
+                           circ->privcount_n_cells_sent_inbound);
+
+    /* Received from next hop */
+    smartlist_add_asprintf(fields, "InboundReceivedCellCount=%" PRIu64,
+                           circ->privcount_n_cells_received_inbound);
+
+    /* Sent to next hop */
+    smartlist_add_asprintf(fields, "OutboundSentCellCount=%" PRIu64,
+                           circ->privcount_n_cells_sent_outbound);
+
+    /* Received from client */
+    smartlist_add_asprintf(fields, "OutboundReceivedCellCount=%" PRIu64,
+                           circ->privcount_n_cells_received_outbound);
+  }
+
+  if (orcirc && is_legacy_circuit_end) {
+    /* Prefer InboundSentCellCount, it will have a similar value.
+     * Sent to client */
+    smartlist_add_asprintf(fields, "InboundExitCellCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_cells_inbound(orcirc));
+
+    /* Received from client */
+    smartlist_add_asprintf(fields, "OutboundExitCellCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_cells_outbound(orcirc));
+
+    /* Received  from internet server */
+    smartlist_add_asprintf(fields, "InboundExitByteCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_bytes_inbound(orcirc));
+
+    /* Sent to internet server */
+    smartlist_add_asprintf(fields, "OutboundExitByteCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_bytes_outbound(orcirc));
+
+    /* Sent to client */
+    smartlist_add_asprintf(fields, "InboundDirByteCount=%" PRIu64,
+                           orcirc->privcount_n_dir_bytes_inbound);
+
+    /* Received from client */
+    smartlist_add_asprintf(fields, "OutboundDirByteCount=%" PRIu64,
+                           orcirc->privcount_n_dir_bytes_outbound);
+  }
+
+  /* Now create the final string */
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory, so the string will never be empty */
+  tor_assert(len > 0);
+
+  send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CLOSE,
+                     "650 PRIVCOUNT_CIRCUIT_CLOSE %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
+}
+
+/* Send PrivCount circuit events triggered on circ, which can be any type of
+ * circuit, and in any position in the circuit (including the origin).
+ * Sets the privcount_event_emitted flag in orcirc to ensure that each
+ * circuit only emits one event.
+ * orcirc must not be NULL.
+ * Calls control_event_privcount_circuit_close() to send the tagged event,
+ * and control_event_privcount_circuit_ended() to send the equivalent legacy
+ * event for OR circuits if is_legacy_circuit_end is true. Legacy events are
+ * a subset of all circuit events. */
+void
+control_event_privcount_circuit(circuit_t *circ,
+                                int is_legacy_circuit_end)
+{
+  /* Just in case */
+  if (!get_options()->EnablePrivCount) {
+    return;
+  }
+
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+    return;
+  }
+
+  tor_assert(is_legacy_circuit_end == 0 ||
+             is_legacy_circuit_end == 1);
+
+  if (BUG(!circ)) {
+    return;
+  }
+
+  or_circuit_t *orcirc = privcount_to_or_circ(circ);
+
+  /* Filter out circuit events for circuits that started before this
+   * collection round */
+  if (!privcount_was_enabled_before(&circ->timestamp_created,
+                                    get_options())) {
+    return;
+  }
+
+  /* If we've already emitted both events, or we've emitted the circuit close
+   * event, and there can't possibly be a legacy event, ignore this event. */
+  if (circ->privcount_event_emitted &&
+      (!orcirc || orcirc->privcount_legacy_event_emitted)) {
+    return;
+  }
+
+  /* Format the legacy fields: we use them in both events */
+
+  /* Filter out legacy circuit overhead (directory circuits at directories). */
+  is_legacy_circuit_end = (is_legacy_circuit_end &&
+                           privcount_is_used_for_legacy_circuit_events(circ));
+
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
+  /* the difference between timestamp_created and timestamp_began only
+   * matters on clients */
+  char *created_str = privcount_timeval_to_epoch_str_dup(
+                                            &circ->timestamp_created,
+                                            NULL);
+
+  /* Either orcirc or orcirc->p_chan can be NULL here. */
+  char *p_addr = privcount_chan_addr_to_str_dup(
+                                              orcirc ? orcirc->p_chan : NULL);
+  char *n_addr = privcount_chan_addr_to_str_dup(circ->n_chan);
+
+  /* Cleanse the address strings we just created: this is good for legacy
+   * events too, because they can't cope with spaces */
+  privcount_cleanse_tagged_str(p_addr);
+  privcount_cleanse_tagged_str(n_addr);
+
+  if (EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE)) {
+
+    control_event_privcount_circuit_close(circ,
+                                          is_legacy_circuit_end,
+                                          created_str,
+                                          now_str,
+                                          p_addr,
+                                          n_addr);
+  }
+
+  if (EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+
+    /* Also emit the legacy event format */
+    if (is_legacy_circuit_end) {
+      if (BUG(!circ) || BUG(!CIRCUIT_IS_ORCIRC(circ)) || BUG(!orcirc)) {
+        return;
+      }
+
+      int prev_is_client = privcount_is_client(orcirc->p_chan);
+      int next_is_exit = privcount_data_is_exit(NULL, orcirc);
+
+      control_event_privcount_circuit_ended(orcirc,
+                                            created_str,
+                                            now_str,
+                                            p_addr,
+                                            prev_is_client,
+                                            n_addr,
+                                            next_is_exit);
+    }
+  }
 
   tor_free(now_str);
   tor_free(created_str);
@@ -7010,7 +8331,8 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
   tor_free(n_addr);
 }
 
-/* Send a PrivCount connection end event triggered on orconn.
+/* Send a PrivCount connection end event triggered on orconn, which can be any
+ * type of OR circuit, and in any position in the circuit (except for origin).
  * This event uses positional fields: order is important.
  * orconn must not be NULL. */
 void
@@ -7020,19 +8342,12 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
     return;
   }
 
-  if (BUG(!orconn)) {
-    return;
-  }
+  /* Checked in control_event_privcount_circuit() */
+  tor_assert(orconn);
 
   /* Filter out connection overhead (directory circuits at directories). */
-  if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
-    return;
-  }
-
-  /* Filter out connection events for connections that started before this
-   * collection round */
-  if (!privcount_was_enabled_before(&orconn->base_.timestamp_created_tv,
-                                    get_options())) {
+  if (!privcount_is_used_for_legacy_connection_events(
+                                                PRIVCOUNT_TO_CONN(orconn))) {
     return;
   }
 
@@ -7094,7 +8409,8 @@ control_event_privcount_hsdir_cache_store(
   }
 
   /* We don't know how to handle other HS versions */
-  tor_assert(hs_version_number == 2 || hs_version_number == 3);
+  tor_assert(hs_version_number == HS_VERSION_TWO ||
+             hs_version_number == HS_VERSION_THREE);
 
   /* We have no way to find a circuit id for this upload, or filter out
    * uploads that started before this collection round, but that's ok, because
