@@ -7025,10 +7025,12 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 }
 
 /* Send a PrivCount circuit cell event triggered on:
- * - chan, TODO, TODO: chan must not be NULL?
+ * - chan, which is the channel the cell was sent or received on.
+ *   chan can be NULL.
  * - circ, which can be any type of circuit in any position in the circuit,
  *   including the origin. circ can be NULL.
- * - cell, TODO, TODO: cell must not be NULL?
+ * - cell, which contains the circuit_id and command for the cell.
+ *   cell must not be NULL.
  * - is_sent, which is PRIVCOUNT_CELL_SENT for sent cells, and
  *   PRIVCOUNT_CELL_RECEIVED for received cells.
  * - is_recognized, which is:
@@ -7050,15 +7052,19 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
                                      const char *is_recognized,
                                      const int *is_relay_crypt_ok)
 {
-  (void)chan;
-  (void)cell;
-  (void)is_sent;
-  (void)is_recognized;
-  (void)is_relay_crypt_ok;
-
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CELL)) {
     return;
   }
+
+  /* chan can be NULL */
+  /* circ can be NULL */
+  tor_assert(cell);
+  tor_assert(is_sent == PRIVCOUNT_CELL_SENT ||
+             is_sent == PRIVCOUNT_CELL_RECEIVED);
+  tor_assert(!is_recognized || *is_recognized == 0 ||
+             *is_recognized == 1);
+  tor_assert(!is_relay_crypt_ok || *is_relay_crypt_ok == 0 ||
+             *is_relay_crypt_ok == 1);
 
   /* Filter out circuit events for circuits that started before this
    * collection round. If we don't have a circuit, there will be no circuit
@@ -7071,6 +7077,7 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
 
   /* Field list TODO:
    * - existing cell event fields
+   * - at least one channel field that is missing when the channel is NULL
    * - at least one circuit field that is missing when the circuit is NULL
    * - circ->marked_for_close: received cells are read from the queue but not
    *   processed, sent cells are not written to the queue
