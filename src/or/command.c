@@ -612,18 +612,13 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     }
   }
 
+  /* circuit_receive_relay_cell() sends PrivCount cell events for every
+   * cell it processes, so we don't need to do that here */
   if ((reason = circuit_receive_relay_cell(cell, circ, direction)) < 0) {
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit_receive_relay_cell "
            "(%s) failed. Closing.",
            direction==CELL_DIRECTION_OUT?"forward":"backward");
     circuit_mark_for_close(circ, -reason);
-
-    /* This was missing from the original cell code. Why? */
-    if (options->EnablePrivCount) {
-      control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
-    }
-
   }
 
   /* If this is a cell in an RP circuit, count it as part of the
