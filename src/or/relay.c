@@ -239,19 +239,19 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
     log_warn(LD_BUG,"relay crypt failed. Dropping connection.");
 
     /* This cell is never actually processed. Counters can ignore it using
-     * is_relay_crypt_ok. */
+     * was_relay_crypt_successful. */
     if (get_options()->EnablePrivCount) {
-      const int is_relay_crypt_ok = 0;
+      const int was_relay_crypt_successful = 0;
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &recognized,
-                                           &is_relay_crypt_ok);
+                                           &was_relay_crypt_successful);
     }
 
     return -END_CIRC_REASON_INTERNAL;
   }
 
-  const int is_relay_crypt_ok = 1;
+  const int was_relay_crypt_successful = 1;
   /* Use the channel that the cell came from */
   if (get_options()->EnablePrivCount) {
     if (cell_direction == CELL_DIRECTION_OUT) {
@@ -259,19 +259,19 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
                                            cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &recognized,
-                                           &is_relay_crypt_ok);
+                                           &was_relay_crypt_successful);
     } else if (!CIRCUIT_IS_ORIGIN(circ)) {
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &recognized,
-                                           &is_relay_crypt_ok);
+                                           &was_relay_crypt_successful);
     } else {
       /* Send events for origin circuits, counters can filter them out using
        * the corresponding field. */
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &recognized,
-                                           &is_relay_crypt_ok);
+                                           &was_relay_crypt_successful);
     }
   }
 
@@ -595,7 +595,7 @@ relay_header_unpack(relay_header_t *dest, const uint8_t *src)
 }
 
 /** Convert the relay <b>command</b> into a human-readable string. */
-static const char *
+const char *
 relay_command_to_string(uint8_t command)
 {
   static char buf[64];

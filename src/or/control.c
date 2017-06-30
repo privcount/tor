@@ -85,6 +85,7 @@
 
 /* PrivCount headers */
 #include "hs_cache.h"
+#include "relay.h"
 #include "rendcommon.h"
 #include "routerparse.h"
 
@@ -6459,6 +6460,29 @@ privcount_or_circuit_p_circ_id(const or_circuit_t *orcirc)
   }
 }
 
+/* Return circ->n_chan->global_identifier, or 0 if any pointer in the chain
+ * is NULL. */
+static uint64_t
+privcount_circuit_n_chan_global_identifier(const circuit_t *circ)
+{
+  if (circ && circ->n_chan) {
+    return circ->n_chan->global_identifier;
+  } else {
+    return 0;
+  }
+}
+
+/* Return circ->n_circ_id, or 0 if circ is NULL. */
+static circid_t
+privcount_circuit_n_circ_id(const circuit_t *circ)
+{
+  if (circ) {
+    return circ->n_circ_id;
+  } else {
+    return 0;
+  }
+}
+
 /* Return orcirc->privcount_n_cells_in, or 0 if orcirc is NULL. */
 static uint64_t
 privcount_or_circuit_n_cells_in(const or_circuit_t *orcirc)
@@ -7039,7 +7063,7 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
  *     NULL for received cells dropped before it is known whether they are
  *     meant for this relay or not, and for sent cells.
  *     is_recognized is not a string, despite its type.
- * - is_relay_crypt_ok, which is:
+ * - was_relay_crypt_successful, which is:
  *     1 when relay_crypt on a received cell succeeded,
  *     0 when relay_crypt on a received cell failed, and
  *     NULL if a received cell was dropped before relay_crypt was called on it,
@@ -7047,11 +7071,18 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
  * Order is unimportant. Unknown fields are left out. */
 void
-control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
-                                     cell_t *cell, int is_sent,
+control_event_privcount_circuit_cell(const channel_t *chan,
+                                     const circuit_t *circ,
+                                     const cell_t *cell,
+                                     int is_sent,
                                      const char *is_recognized,
-                                     const int *is_relay_crypt_ok)
+                                     const int *was_relay_crypt_successful)
 {
+  /* Just in case */
+  if (!get_options()->EnablePrivCount) {
+    return;
+  }
+
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CELL)) {
     return;
   }
@@ -7063,8 +7094,8 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
              is_sent == PRIVCOUNT_CELL_RECEIVED);
   tor_assert(!is_recognized || *is_recognized == 0 ||
              *is_recognized == 1);
-  tor_assert(!is_relay_crypt_ok || *is_relay_crypt_ok == 0 ||
-             *is_relay_crypt_ok == 1);
+  tor_assert(!was_relay_crypt_successful || *was_relay_crypt_successful == 0 ||
+             *was_relay_crypt_successful == 1);
 
   /* Filter out circuit events for circuits that started before this
    * collection round. If we don't have a circuit, there will be no circuit
@@ -7075,17 +7106,156 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
     return;
   }
 
-  /* Field list TODO:
-   * - existing cell event fields
-   * - at least one channel field that is missing when the channel is NULL
-   * - at least one circuit field that is missing when the circuit is NULL
-   * - circ->marked_for_close: received cells are read from the queue but not
-   *   processed, sent cells are not written to the queue
-   * - CIRCUIT_IS_ORIGIN() (in the cell or circuit event?)
-   */
+  /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* IsSentFlag >      1                0
+   * v IsOutboundFlag
+   * 1                 SENT TO_SERVER   RECEIVED FROM_CLIENT
+   * 0                 SENT TO_CLIENT   RECEIVED FROM_SERVER
+   * (missing)         SENT UNKNOWN     RECEIVED UNKNOWN
+  */
+  smartlist_add_asprintf(fields, "IsSentFlag=%d",
+                         is_sent);
+
+  /* TO_OR_CIRCUIT() doesn't modify circ */
+  const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
+
+  if (chan && circ) {
+
+    const channel_t* n_chan = circ->n_chan;
+    const channel_t* p_chan = orcirc ? orcirc->p_chan : NULL;
+
+    if (n_chan == chan && p_chan == chan) {
+      /* If chan is both channels, there is a bug here */
+      tor_assert_nonfatal_unreached();
+    } else if (n_chan == chan) {
+      smartlist_add_asprintf(fields, "IsOutboundFlag=1");
+    } else if (p_chan == chan) {
+      smartlist_add_asprintf(fields, "IsOutboundFlag=0");
+    }
+  }
+
+  /* No relative timestamps: they are much easier to calculate in python */
+  smartlist_add(fields,
+                privcount_timeval_now_to_epoch_str_dup("EventTimestamp="));
+
+  if (orcirc) {
+    if (orcirc->p_chan) {
+      smartlist_add_asprintf(fields, "PreviousChannelId=%" PRIu64,
+          privcount_or_circuit_p_chan_global_identifier(orcirc));
+    }
+
+    smartlist_add_asprintf(fields, "PreviousCircuitId=%" PRIu32,
+                           privcount_or_circuit_p_circ_id(orcirc));
+  }
+
+  if (circ) {
+    if (circ->n_chan) {
+      smartlist_add_asprintf(fields, "NextChannelId=%" PRIu64,
+                             privcount_circuit_n_chan_global_identifier(circ));
+    }
+
+    smartlist_add_asprintf(fields, "NextCircuitId=%" PRIu32,
+                           privcount_circuit_n_circ_id(circ));
+  }
+
+  /* Leave out cell_num */
+
+  const char *cell_command_string = cell_command_to_string(cell->command);
+  if (cell_command_string) {
+    char *clean_str = privcount_cleanse_tagged_str_dup(cell_command_string);
+    smartlist_add_asprintf(fields, "CellCommandString=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  /* Extracting the relay command is unreliable.
+   * But let's try anyway. */
+  int try_relay_command;
+  if (is_sent == PRIVCOUNT_CELL_SENT) {
+    /* We should be able to read our own cells */
+    try_relay_command = 1;
+  } else {
+    if (is_recognized != NULL && *is_recognized == 0) {
+      /* This cell is not for us, so there is no relay command */
+      try_relay_command = 0;
+    } else if (was_relay_crypt_successful != NULL &&
+               *was_relay_crypt_successful == 0) {
+      /* This cell did not decrypt, so any command would be garbage */
+      try_relay_command = 0;
+    } else {
+      /* We should be able to read cells we can decrypt */
+      try_relay_command = 1;
+    }
+  }
+
+  if (try_relay_command) {
+    relay_header_t rh;
+    relay_header_unpack(&rh, cell->payload);
+    /* If we had access to the path, we could check integrity here and really
+     * be sure that the header is valid */
+    if (rh.recognized == 0 && rh.length <= RELAY_PAYLOAD_SIZE) {
+      const char *relay_command_string = relay_command_to_string(rh.command);
+      if (relay_command_string &&
+          strcmpstart(relay_command_string, "Unrecognized")) {
+        char *clean_str = privcount_cleanse_tagged_str_dup(
+                                                        relay_command_string);
+        smartlist_add_asprintf(fields, "RelayCommandString=%s",
+                               clean_str);
+        tor_free(clean_str);
+      } else {
+        /* The cell had a good recognized and length, but a bad command.
+         * Log a stack trace for debugging, so we fix bugs where we look at
+         * bad cells */
+        tor_assert_nonfatal_unreached();
+      }
+    } else {
+      /* The cell had a bad recognized and length.
+       * Log a stack trace for debugging, so we fix bugs where we look at
+       * bad cells */
+      tor_assert_nonfatal_unreached();
+    }
+  }
+
+  /* Extra fields that weren't in the example code */
+
+  if (is_recognized) {
+    smartlist_add_asprintf(fields, "IsRecognizedFlag=%d",
+                           (int)*is_recognized);
+  }
+
+  if (was_relay_crypt_successful) {
+    smartlist_add_asprintf(fields, "WasRelayCryptSuccessfulFlag=%d",
+                           *was_relay_crypt_successful);
+  }
+
+  if (circ) {
+    /* This flag is sometimes set to the line number, but all we want is
+     * a boolean */
+    smartlist_add_asprintf(fields, "CircuitMarkedForCloseFlag=%d",
+                           !! circ->marked_for_close);
+
+    /* Can we just put this in the circuit event? */
+    smartlist_add_asprintf(fields, "CircuitIsOriginFlag=%d",
+                           CIRCUIT_IS_ORIGIN(circ));
+  }
+
+  /* Now create the final string */
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory, so the string will never be empty */
+  tor_assert(len > 0);
 
   send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CELL,
-                     "650 PRIVCOUNT_CIRCUIT_CELL");
+                     "650 PRIVCOUNT_CIRCUIT_CELL %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
 }
 
 /* Send a PrivCount circuit close event triggered on circ, which can be any
