@@ -223,9 +223,9 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
              cell_direction == CELL_DIRECTION_IN);
   if (circ->marked_for_close) {
 
-    /* This was missing from the original cell code. Why? */
-    /* This cell is never actually processed: ignore it in the PrivCount code?
-     */
+    /* Received cells on circuits that are marked for close are read from the
+     * queue, and then dropped.
+     * Most counters will just ignore this, but do it anyway for consistency */
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
@@ -2824,8 +2824,9 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
 
   if (circ->marked_for_close) {
 
-    /* This was missing from the original cell code. Why? */
-    /* This cell is never actually sent: ignore it in the PrivCount code */
+    /* Attempts to send a cell on a circuit that is marked for close are
+     * ignored.
+     * Most counters will just ignore this, but do it anyway for consistency */
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_SENT);

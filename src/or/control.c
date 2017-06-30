@@ -7057,6 +7057,8 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
   /* Field list TODO:
    * - existing cell event fields
    * - at least one circuit field that is missing when the circuit is NULL
+   * - circ->marked_for_close: received cells are read from the queue but not
+   *   processed, sent cells are not written to the queue
    */
 
   send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CELL,

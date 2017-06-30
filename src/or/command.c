@@ -531,13 +531,13 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
 
   if (circ->state == CIRCUIT_STATE_ONIONSKIN_PENDING) {
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit in create_wait. Closing.");
+    circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
     }
 
-    circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
     return;
   }
 
@@ -572,13 +572,13 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
         log_warn(LD_OR, " upstream=%s",
                  channel_get_actual_remote_descr(circ->n_chan));
       }
+      circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
       if (options->EnablePrivCount) {
         control_event_privcount_circuit_cell(chan, circ, cell,
                                              PRIVCOUNT_CELL_RECEIVED);
       }
 
-      circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
       return;
     } else {
       or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
@@ -588,13 +588,13 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
                "  Closing circuit.",
                (unsigned)cell->circ_id,
                safe_str(channel_get_canonical_remote_descr(chan)));
+        circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
         if (options->EnablePrivCount) {
           control_event_privcount_circuit_cell(chan, circ, cell,
                                                PRIVCOUNT_CELL_RECEIVED);
         }
 
-        circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
         return;
       }
       --or_circ->remaining_relay_early_cells;
@@ -605,6 +605,7 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit_receive_relay_cell "
            "(%s) failed. Closing.",
            direction==CELL_DIRECTION_OUT?"forward":"backward");
+    circuit_mark_for_close(circ, -reason);
 
     /* This was missing from the original cell code. Why? */
     if (options->EnablePrivCount) {
@@ -612,7 +613,6 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
                                            PRIVCOUNT_CELL_RECEIVED);
     }
 
-    circuit_mark_for_close(circ, -reason);
   }
 
   /* If this is a cell in an RP circuit, count it as part of the
