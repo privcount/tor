@@ -266,8 +266,8 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
                                            &recognized,
                                            &is_relay_crypt_ok);
     } else {
-      /* This was missing from the original cell code. Why? */
-      /* Are we ignoring all origin cells? Do it in the privcount code. */
+      /* Send events for origin circuits, counters can filter them out using
+       * the corresponding field. */
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &recognized,

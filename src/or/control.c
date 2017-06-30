@@ -7026,8 +7026,8 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 
 /* Send a PrivCount circuit cell event triggered on:
  * - chan, TODO, TODO: chan must not be NULL?
- * - circ, which can be any type of circuit in any position in the circuit
- *   (TODO: except for origin?). circ can be NULL.
+ * - circ, which can be any type of circuit in any position in the circuit,
+ *   including the origin. circ can be NULL.
  * - cell, TODO, TODO: cell must not be NULL?
  * - is_sent, which is PRIVCOUNT_CELL_SENT for sent cells, and
  *   PRIVCOUNT_CELL_RECEIVED for received cells.
@@ -7074,6 +7074,7 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
    * - at least one circuit field that is missing when the circuit is NULL
    * - circ->marked_for_close: received cells are read from the queue but not
    *   processed, sent cells are not written to the queue
+   * - CIRCUIT_IS_ORIGIN() (in the cell or circuit event?)
    */
 
   send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CELL,
