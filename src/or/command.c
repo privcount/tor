@@ -295,16 +295,19 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     log_info(LD_OR,
              "Received create cell but we're shutting down. Sending back "
              "destroy.");
-    channel_send_destroy(cell->circ_id, chan,
-                               END_CIRC_REASON_HIBERNATING);
 
-    /* Most counters will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency.
+     * It would be inaccurate to have the destroy cell arrive before the
+     * create cell that triggered it: counters can filter it by checking for
+     * missing circuit fields, or checking if the next cell is a destroy. */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            NULL, NULL);
     }
 
+    channel_send_destroy(cell->circ_id, chan,
+                         END_CIRC_REASON_HIBERNATING);
     return;
   }
 
@@ -316,7 +319,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
            "Sending back a destroy.",
            (int)cell->command, channel_get_canonical_remote_descr(chan));
 
-    /* Most counters will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency.
+     * See the comment about about create-destroy ordering. */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
@@ -342,7 +346,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
            "Received create cell with unexpected circ_id %u. Closing.",
            (unsigned)cell->circ_id);
 
-    /* Most counters will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency.
+     * See the comment about about create-destroy ordering. */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
@@ -444,16 +449,18 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
 
   circ = circuit_get_by_circid_channel(cell->circ_id, chan);
 
-  if (get_options()->EnablePrivCount) {
-      control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
-  }
-
   if (!circ) {
     log_info(LD_OR,
              "(circID %u) unknown circ (probably got a destroy earlier). "
              "Dropping.", (unsigned)cell->circ_id);
+
+    /* Most counters will just ignore this, but do it anyway for consistency */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
+    }
+
     return;
   }
 
@@ -461,13 +468,38 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,
            "got created cell from Tor client? Closing.");
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
+
+    /* Most counters will just ignore this, but do it anyway for consistency.
+     * Always mark_for_close before sending the cell event, so counters can
+     * filter out bad cells. */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
+    }
+
     return;
   }
 
   if (created_cell_parse(&extended_cell.created_cell, cell) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_OR, "Unparseable created cell.");
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
+
+    /* Most counters will just ignore this, but do it anyway for consistency.
+     * See the comment above about mark-event ordering. */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
+    }
+
     return;
+  }
+
+  if (get_options()->EnablePrivCount) {
+    control_event_privcount_circuit_cell(chan, circ, cell,
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         NULL, NULL);
   }
 
   if (CIRCUIT_IS_ORIGIN(circ)) { /* we're the OP. Handshake this. */
@@ -541,6 +573,9 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit in create_wait. Closing.");
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
+    /* Most counters will just ignore this, but do it anyway for consistency.
+     * Always mark_for_close before sending the cell event, so counters can
+     * filter out bad cells. */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
@@ -583,6 +618,8 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
       }
       circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
+      /* Most counters will just ignore this, but do it anyway for
+       * consistency. See the comment above about mark-event ordering. */
       if (options->EnablePrivCount) {
         control_event_privcount_circuit_cell(chan, circ, cell,
                                              PRIVCOUNT_CELL_RECEIVED,
@@ -600,6 +637,8 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
                safe_str(channel_get_canonical_remote_descr(chan)));
         circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
+        /* Most counters will just ignore this, but do it anyway for
+         * consistency. See the comment above about mark-event ordering. */
         if (options->EnablePrivCount) {
           control_event_privcount_circuit_cell(chan, circ, cell,
                                                PRIVCOUNT_CELL_RECEIVED,
@@ -651,6 +690,10 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
 
   circ = circuit_get_by_circid_channel(cell->circ_id, chan);
 
+  /* It's ok to call this before the !circ check, because most counters will
+   * ignore NULL circuits. And it's ok to call it when the circuit is not
+   * marked for close, because marking for close (or a truncated cell) is an
+   * expected response to a destroy cell. */
   if (get_options()->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, circ, cell,
                                          PRIVCOUNT_CELL_RECEIVED,
