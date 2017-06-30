@@ -1393,14 +1393,27 @@ circuit_unlink_all_from_channel(channel_t *chan, int reason)
 
   SMARTLIST_FOREACH_BEGIN(detached, circuit_t *, circ) {
     int mark = 0;
+
     if (!CIRCUIT_IS_ORIGIN(circ)) {
         /* need to record end before clearing ids and pointers */
         or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
         if (circ->n_chan == chan || or_circ->p_chan == chan) {
-            control_event_privcount_circuit_close(or_circ);
+          /* Send the OR circuit legacy event. This covers the p_chan case
+           * below, but misses the origin n_chan cases. */
+          if (get_options()->EnablePrivCount) {
+            control_event_privcount_circuit_close(circ, 1);
+          }
         }
     }
+
     if (circ->n_chan == chan) {
+
+      /* Send the OR circuit or origin circuit event: it's safe to call this
+       * function after we send the legacy event, because it ignores duplicate
+       * circuit close events */
+      if (get_options()->EnablePrivCount) {
+        control_event_privcount_circuit_close(circ, 0);
+      }
 
       circuit_set_n_circid_chan(circ, 0, NULL);
       mark = 1;
@@ -1913,8 +1926,8 @@ circuit_about_to_free(circuit_t *circ)
   }
 
   /* do this before clearing n_chan and p_chan */
-  if (!CIRCUIT_IS_ORIGIN(circ)) {
-    control_event_privcount_circuit_close(TO_OR_CIRCUIT(circ));
+  if (get_options()->EnablePrivCount) {
+    control_event_privcount_circuit_close(circ, 1);
   }
 
   if (circ->n_chan) {

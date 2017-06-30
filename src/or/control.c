@@ -7081,46 +7081,58 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
                      "650 PRIVCOUNT_CIRCUIT_CELL");
 }
 
-/* Send a PrivCount circuit close event triggered on orcirc, which can be any
- * type of OR circuit, and in any position in the circuit (except for origin).
+/* Send a PrivCount circuit close event triggered on circ, which can be any
+ * type of circuit, and in any position in the circuit (including the origin).
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
  * Order is unimportant. Unknown fields are left out.
  * Sets the privcount_event_emitted flag in orcirc to ensure that each
  * circuit only emits one event.
  * orcirc must not be NULL.
  * Calls control_event_privcount_circuit_ended() to send the equivalent legacy
- * event. */
+ * event for OR circuits if is_legacy_circuit_end is true. */
 void
-control_event_privcount_circuit_close(or_circuit_t *orcirc)
+control_event_privcount_circuit_close(circuit_t *circ,
+                                      int is_legacy_circuit_end)
 {
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE) &&
       !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return;
   }
 
+  tor_assert(is_legacy_circuit_end == 0 ||
+             is_legacy_circuit_end == 1);
+
   /* Ignore events that have already been sent
    */
-  if (BUG(!orcirc) || orcirc->privcount_event_emitted) {
+  if (BUG(!circ) || circ->privcount_event_emitted) {
     return;
   }
 
-  orcirc->privcount_event_emitted = 1;
+  circ->privcount_event_emitted = 1;
 
   /* Filter out circuit events for circuits that started before this
    * collection round */
-  if (!privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+  if (!privcount_was_enabled_before(&circ->timestamp_created,
                                     get_options())) {
     return;
   }
+
+  /* Field list TODO:
+   * - is_legacy_circuit_end
+   * - CIRCUIT_IS_ORIGIN()/CIRCUIT_IS_ORCIRC()
+   */
 
   send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CLOSE,
                      "650 PRIVCOUNT_CIRCUIT_CLOSE");
 
   /* Also emit the legacy event format */
-  control_event_privcount_circuit_ended(orcirc);
+  if (is_legacy_circuit_end && !CIRCUIT_IS_ORIGIN(circ)) {
+    control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
+  }
 }
 
-/* Send a PrivCount connection end event triggered on orconn.
+/* Send a PrivCount connection end event triggered on orconn, which can be any
+ * type of OR circuit, and in any position in the circuit (except for origin).
  * This event uses positional fields: order is important.
  * orconn must not be NULL. */
 void
@@ -7130,19 +7142,11 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
     return;
   }
 
-  if (BUG(!orconn)) {
-    return;
-  }
+  /* Checked in control_event_privcount_circuit_close() */
+  tor_assert(orconn);
 
   /* Filter out connection overhead (directory circuits at directories). */
   if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
-    return;
-  }
-
-  /* Filter out connection events for connections that started before this
-   * collection round */
-  if (!privcount_was_enabled_before(&orconn->base_.timestamp_created_tv,
-                                    get_options())) {
     return;
   }
 

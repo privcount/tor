@@ -3063,6 +3063,9 @@ typedef struct circuit_t {
    * circuit's queues; used only if CELL_STATS events are enabled and
    * cleared after being sent to control port. */
   smartlist_t *testing_cell_stats;
+
+  /* Has the circuit ended event been emitted? */
+  int privcount_event_emitted;
 } circuit_t;
 
 /** Largest number of relay_early cells that we can send on a given
@@ -3418,9 +3421,6 @@ typedef struct or_circuit_t {
   uint64_t privcount_n_cells_out;
   uint64_t privcount_n_read;
   uint64_t privcount_n_written;
-  /* Has the circuit ended event been emitted? */
-  int privcount_event_emitted;
-
 } or_circuit_t;
 
 #if REND_COOKIE_LEN != DIGEST_LEN
