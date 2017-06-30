@@ -256,7 +256,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
            " ignoring.", (int)cell->command,
            channel_get_actual_remote_descr(chan));
 
-    /* PrivCount will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
@@ -280,7 +280,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
       tor_free(p);
     }
 
-    /* PrivCount will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
@@ -296,7 +296,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     channel_send_destroy(cell->circ_id, chan,
                                END_CIRC_REASON_HIBERNATING);
 
-    /* PrivCount will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
@@ -313,7 +313,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
            "Sending back a destroy.",
            (int)cell->command, channel_get_canonical_remote_descr(chan));
 
-    /* PrivCount will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
@@ -338,7 +338,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
            "Received create cell with unexpected circ_id %u. Closing.",
            (unsigned)cell->circ_id);
 
-    /* PrivCount will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
@@ -439,10 +439,8 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
   circ = circuit_get_by_circid_channel(cell->circ_id, chan);
 
   if (get_options()->EnablePrivCount) {
-    if (circ) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED);
-    }
   }
 
   if (!circ) {
@@ -522,7 +520,7 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
               (unsigned)cell->circ_id,
               channel_get_canonical_remote_descr(chan));
 
-    /* PrivCount will just ignore this, but do it anyway for consistency */
+    /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED);

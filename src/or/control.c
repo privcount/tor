@@ -7027,7 +7027,7 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
 /* Send a PrivCount circuit cell event triggered on:
  * - chan, TODO, TODO: chan must not be NULL?
  * - circ, which can be any type of circuit in any position in the circuit
- *   (TODO: except for origin?), circ must not be NULL.
+ *   (TODO: except for origin?). circ can be NULL.
  * - cell, TODO, TODO: cell must not be NULL?
  * - is_sent, which is PRIVCOUNT_CELL_SENT for sent cells, and
  *   PRIVCOUNT_CELL_RECEIVED for received cells.
@@ -7045,18 +7045,19 @@ control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
     return;
   }
 
-  /* Ignore any missing circs, because we need a circ for the bias check below
-   */
-  if (BUG(!circ)) {
-    return;
-  }
-
   /* Filter out circuit events for circuits that started before this
-   * collection round */
-  if (!privcount_was_enabled_before(&circ->timestamp_created,
+   * collection round. If we don't have a circuit, there will be no circuit
+   * fields in the event. Most clients will want to filter NULL circuits out
+   * as well. */
+  if (circ && !privcount_was_enabled_before(&circ->timestamp_created,
                                     get_options())) {
     return;
   }
+
+  /* Field list TODO:
+   * - existing cell event fields
+   * - at least one circuit field that is missing when the circuit is NULL
+   */
 
   send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CELL,
                      "650 PRIVCOUNT_CIRCUIT_CELL");
