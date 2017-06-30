@@ -228,7 +228,8 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
      * Most counters will just ignore this, but do it anyway for consistency */
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     return 0;
@@ -237,32 +238,40 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
   if (relay_crypt(circ, cell, cell_direction, &layer_hint, &recognized) < 0) {
     log_warn(LD_BUG,"relay crypt failed. Dropping connection.");
 
-    /* This was missing from the original cell code. Why? */
-    /* This cell is never actually processed: ignore it in the PrivCount code?
-     */
+    /* This cell is never actually processed. Counters can ignore it using
+     * is_relay_crypt_ok. */
     if (get_options()->EnablePrivCount) {
+      const int is_relay_crypt_ok = 0;
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &is_relay_crypt_ok);
     }
 
     return -END_CIRC_REASON_INTERNAL;
   }
 
-  /* This code has changed a lot since the example code was written */
-  /* where did it come **from** ? */
+  const int is_relay_crypt_ok = 1;
+  /* Use the channel that the cell came from */
   if (get_options()->EnablePrivCount) {
     if (cell_direction == CELL_DIRECTION_OUT) {
       control_event_privcount_circuit_cell(TO_OR_CIRCUIT(circ)->p_chan, circ,
                                            cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &is_relay_crypt_ok);
     } else if (!CIRCUIT_IS_ORIGIN(circ)) {
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &is_relay_crypt_ok);
     } else {
       /* This was missing from the original cell code. Why? */
       /* Are we ignoring all origin cells? Do it in the privcount code. */
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &is_relay_crypt_ok);
     }
   }
 
@@ -2829,7 +2838,8 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
      * Most counters will just ignore this, but do it anyway for consistency */
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_SENT);
+                                           PRIVCOUNT_CELL_SENT,
+                                           NULL, NULL);
     }
 
     return;
@@ -2837,7 +2847,8 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
 
   if (get_options()->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, circ, cell,
-                                         PRIVCOUNT_CELL_SENT);
+                                         PRIVCOUNT_CELL_SENT,
+                                         NULL, NULL);
   }
 
   exitward = (direction == CELL_DIRECTION_OUT);

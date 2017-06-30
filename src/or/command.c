@@ -259,7 +259,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     return;
@@ -283,7 +284,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     return;
@@ -299,7 +301,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     return;
@@ -316,7 +319,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     channel_send_destroy(cell->circ_id, chan,
@@ -341,7 +345,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     channel_send_destroy(cell->circ_id, chan,
@@ -355,7 +360,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
 
   if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
   }
 
   create_cell = tor_malloc_zero(sizeof(create_cell_t));
@@ -440,7 +446,8 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
 
   if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
   }
 
   if (!circ) {
@@ -523,7 +530,8 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     /* Most counters will just ignore this, but do it anyway for consistency */
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     return;
@@ -535,7 +543,8 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
 
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED);
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
     }
 
     return;
@@ -576,7 +585,8 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
 
       if (options->EnablePrivCount) {
         control_event_privcount_circuit_cell(chan, circ, cell,
-                                             PRIVCOUNT_CELL_RECEIVED);
+                                             PRIVCOUNT_CELL_RECEIVED,
+                                             NULL, NULL);
       }
 
       return;
@@ -592,7 +602,8 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
 
         if (options->EnablePrivCount) {
           control_event_privcount_circuit_cell(chan, circ, cell,
-                                               PRIVCOUNT_CELL_RECEIVED);
+                                               PRIVCOUNT_CELL_RECEIVED,
+                                               NULL, NULL);
         }
 
         return;
@@ -647,7 +658,8 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
 
   if (get_options()->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, circ, cell,
-                                         PRIVCOUNT_CELL_RECEIVED);
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         NULL, NULL);
   }
 
   if (!circ) {

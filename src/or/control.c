@@ -7031,15 +7031,30 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
  * - cell, TODO, TODO: cell must not be NULL?
  * - is_sent, which is PRIVCOUNT_CELL_SENT for sent cells, and
  *   PRIVCOUNT_CELL_RECEIVED for received cells.
+ * - is_recognized, which is:
+ *     1 for received outbound cells meant for this relay,
+ *     0 for received inbound cells and outbound cells meant for other relays,
+ *     NULL for received cells dropped before it is known whether they are
+ *     meant for this relay or not, and for sent cells.
+ *     is_recognized is not a string, despite its type.
+ * - is_relay_crypt_ok, which is:
+ *     1 when relay_crypt on a received cell succeeded,
+ *     0 when relay_crypt on a received cell failed, and
+ *     NULL if a received cell was dropped before relay_crypt was called on it,
+*      or for sent cells.
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
  * Order is unimportant. Unknown fields are left out. */
 void
 control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
-                                     cell_t *cell, int is_sent)
+                                     cell_t *cell, int is_sent,
+                                     const char *is_recognized,
+                                     const int *is_relay_crypt_ok)
 {
   (void)chan;
   (void)cell;
   (void)is_sent;
+  (void)is_recognized;
+  (void)is_relay_crypt_ok;
 
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CELL)) {
     return;

@@ -196,7 +196,9 @@ void control_event_privcount_hsdir_cache_store(
                                       ssize_t encoded_intro_point_byte_count);
 void control_event_privcount_circuit_close(or_circuit_t *orcirc);
 void control_event_privcount_circuit_cell(channel_t *chan, circuit_t *circ,
-                                          cell_t *cell, int is_sent);
+                                          cell_t *cell, int is_sent,
+                                          const char *is_recognized,
+                                          const int *is_relay_crypt_ok);
 #define PRIVCOUNT_CELL_RECEIVED 0
 #define PRIVCOUNT_CELL_SENT 1
 
