@@ -6859,6 +6859,26 @@ privcount_list_routerstatus_flags(const routerstatus_t *rs)
   return result_string;
 }
 
+/** Like circuit_state_to_string, but with shorter strings with no spaces.
+ * Function to make circ-\>state human-readable.
+ * Returns a word that says what the circuit is waiting for. */
+static const char *
+privcount_circuit_state_to_controller_string(uint8_t state)
+{
+  static char buf[64];
+  switch (state) {
+    case CIRCUIT_STATE_BUILDING: return "build";
+    case CIRCUIT_STATE_ONIONSKIN_PENDING: return "crypto";
+    case CIRCUIT_STATE_CHAN_WAIT: return "connect";
+    case CIRCUIT_STATE_GUARD_WAIT: return "guard";
+    case CIRCUIT_STATE_OPEN: return "open";
+    default:
+      log_warn(LD_BUG, "Unknown circuit state %d", state);
+      tor_snprintf(buf, sizeof(buf), "unknown_%d", state);
+      return buf;
+  }
+}
+
 /* PrivCount event functions */
 
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
@@ -7084,6 +7104,33 @@ control_event_privcount_circuit_ended(const or_circuit_t *orcirc,
                      next_is_edge);
 }
 
+/* Add tagged fields for the circuit ids in circ to fields, prefixed using
+ * prefix, if present. */
+static void
+privcount_add_circuit_id_fields(smartlist_t *fields,
+                                const circuit_t *circ,
+                                const char *prefix)
+{
+  tor_assert(fields);
+
+  if (!prefix) {
+    prefix = "";
+  }
+
+  /* TO_OR_CIRCUIT() doesn't actually modify circ */
+  const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
+
+  if (orcirc) {
+    smartlist_add_asprintf(fields, "%sPreviousCircuitId=%" PRIu32,
+                           prefix, privcount_or_circuit_p_circ_id(orcirc));
+  }
+
+  if (circ) {
+    smartlist_add_asprintf(fields, "%sNextCircuitId=%" PRIu32,
+                           prefix, privcount_circuit_n_circ_id(circ));
+  }
+}
+
 /* Add the common cell and circuit tagged fields in circ to fields */
 static void
 privcount_add_circuit_common_fields(smartlist_t *fields,
@@ -7094,33 +7141,27 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   /* TO_OR_CIRCUIT() doesn't actually modify circ */
   const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
 
-  if (orcirc) {
-    if (orcirc->p_chan) {
-      smartlist_add_asprintf(fields, "PreviousChannelId=%" PRIu64,
-          privcount_or_circuit_p_chan_global_identifier(orcirc));
-    }
-
-    smartlist_add_asprintf(fields, "PreviousCircuitId=%" PRIu32,
-                           privcount_or_circuit_p_circ_id(orcirc));
-  }
-
   if (circ) {
-    if (circ->n_chan) {
-      smartlist_add_asprintf(fields, "NextChannelId=%" PRIu64,
-                             privcount_circuit_n_chan_global_identifier(circ));
-    }
-
-    smartlist_add_asprintf(fields, "NextCircuitId=%" PRIu32,
-                           privcount_circuit_n_circ_id(circ));
-
     /* This flag is sometimes set to the line number, but all we want is
      * a boolean */
     smartlist_add_asprintf(fields, "CircuitMarkedForCloseFlag=%d",
                            !! circ->marked_for_close);
 
+    smartlist_add_asprintf(fields, "CircuitPurposeCode=%" PRIu8,
+                           circ->purpose);
+
+    /* This is redundant, but might be easier to filter on */
     smartlist_add_asprintf(fields, "CircuitIsOriginFlag=%d",
                            CIRCUIT_IS_ORIGIN(circ));
   }
+
+  if (orcirc) {
+    /* This is redundant, but might be easier to filter on */
+    smartlist_add_asprintf(fields, "CircuitCarriesHSTrafficFlag=%d",
+                           orcirc->circuit_carries_hs_traffic_stats);
+  }
+
+  privcount_add_circuit_id_fields(fields, circ, NULL);
 }
 
 /* Send a PrivCount circuit cell event triggered on:
@@ -7428,7 +7469,46 @@ control_event_privcount_circuit_close(circuit_t *circ,
 
   privcount_add_circuit_common_fields(fields, circ);
 
+  if (circ) {
+    /* What state was this circuit in when it closed?
+     * This is a word that says what the circuit is waiting for
+     * There is no closed state, check CircuitMarkedForCloseFlag for that */
+    const char *state = privcount_circuit_state_to_controller_string(
+                                                                  circ->state);
+    if (state) {
+      tor_assert(privcount_tagged_str_is_clean(state));
+      smartlist_add_asprintf(fields, "StateString=%s",
+                             state);
+    }
+
+    /* What is this circuit for?
+     * And if it is an HS circuit, what state was it in when it closed?
+     * These are redundant, but are much easier to read
+     * privcount_add_circuit_common_fields() adds an integer purpose code and
+     * some summary flags */
+    const char *purpose = circuit_purpose_to_controller_string(circ->purpose);
+    const char *hs_purpose = circuit_purpose_to_controller_hs_state_string(
+                                                                circ->purpose);
+
+    if (purpose) {
+      char *clean_str = privcount_cleanse_tagged_str_dup(purpose);
+      smartlist_add_asprintf(fields, "PurposeString=%s",
+                             clean_str);
+      tor_free(clean_str);
+    }
+
+    if (hs_purpose) {
+      char *clean_str = privcount_cleanse_tagged_str_dup(hs_purpose);
+      smartlist_add_asprintf(fields, "HSStateString=%s",
+                             clean_str);
+      tor_free(clean_str);
+    }
+  }
+
   if (orcirc && orcirc->p_chan) {
+    smartlist_add_asprintf(fields, "PreviousChannelId=%" PRIu64,
+                        privcount_or_circuit_p_chan_global_identifier(orcirc));
+
     smartlist_add_asprintf(fields, "PreviousNodeIsClientFlag=%d",
                            prev_is_client);
 
@@ -7441,6 +7521,9 @@ control_event_privcount_circuit_close(circuit_t *circ,
   }
 
   if (circ && circ->n_chan) {
+    smartlist_add_asprintf(fields, "NextChannelId=%" PRIu64,
+                           privcount_circuit_n_chan_global_identifier(circ));
+
     /* If this flag is true, the next node is not an OR node.
      * Instead, this is an Exit circuit at an Exit: the next nodes are
      * Internet servers accessed via edge connections. */
@@ -7453,6 +7536,13 @@ control_event_privcount_circuit_close(circuit_t *circ,
 
     const node_t* next_node = node_get_by_id(circ->n_chan->identity_digest);
     privcount_add_node_fields(fields, next_node, "NextNode");
+  }
+
+  /* If it's a rendezvous circuit, also output the IDs of the other circuit
+   * it's linked with. */
+  if (orcirc && orcirc->rend_splice) {
+    privcount_add_circuit_id_fields(fields, TO_CIRCUIT(orcirc->rend_splice),
+                                    "RendSplice");
   }
 
   if (orcirc) {
