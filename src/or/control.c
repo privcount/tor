@@ -6181,7 +6181,8 @@ privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
   /* These events use byte counts via edge_connection_t's
    * privcount_n_exit_bytes_inbound or privcount_n_exit_bytes_outbound. */
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED) &&
-      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE)) {
     return 0;
   }
 
@@ -7438,18 +7439,6 @@ control_event_privcount_circuit_close(circuit_t *circ,
 
     const node_t* prev_node = node_get_by_id(orcirc->p_chan->identity_digest);
     privcount_add_node_fields(fields, prev_node, "PreviousNode");
-
-    smartlist_add_asprintf(fields, "InboundExitCellCount=%" PRIu64,
-                           privcount_or_circuit_n_exit_cells_inbound(orcirc));
-
-    smartlist_add_asprintf(fields, "OutboundExitCellCount=%" PRIu64,
-                           privcount_or_circuit_n_exit_cells_outbound(orcirc));
-
-    smartlist_add_asprintf(fields, "InboundExitByteCount=%" PRIu64,
-                           privcount_or_circuit_n_exit_bytes_inbound(orcirc));
-
-    smartlist_add_asprintf(fields, "OutboundExitByteCount=%" PRIu64,
-                           privcount_or_circuit_n_exit_bytes_outbound(orcirc));
   }
 
   if (circ && circ->n_chan) {
@@ -7465,6 +7454,20 @@ control_event_privcount_circuit_close(circuit_t *circ,
 
     const node_t* next_node = node_get_by_id(circ->n_chan->identity_digest);
     privcount_add_node_fields(fields, next_node, "NextNode");
+  }
+
+  if (orcirc) {
+    smartlist_add_asprintf(fields, "InboundExitCellCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_cells_inbound(orcirc));
+
+    smartlist_add_asprintf(fields, "OutboundExitCellCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_cells_outbound(orcirc));
+
+    smartlist_add_asprintf(fields, "InboundExitByteCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_bytes_inbound(orcirc));
+
+    smartlist_add_asprintf(fields, "OutboundExitByteCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_bytes_outbound(orcirc));
   }
 
   /* Now create the final string */
