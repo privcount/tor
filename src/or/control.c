@@ -7336,7 +7336,7 @@ privcount_add_node_fields(smartlist_t *fields,
     if (node->rs) {
       char *relay_flags = privcount_list_routerstatus_flags(node->rs);
       /* Assume the flag list is ok to use as an event value */
-      smartlist_add_asprintf(fields, "%sFlags=%s",
+      smartlist_add_asprintf(fields, "%sRelayFlagList=%s",
                              prefix, relay_flags);
       tor_free(relay_flags);
     }
