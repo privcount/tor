@@ -6739,13 +6739,13 @@ privcount_list_hs_v2_intro_point_fingerprints(
       /* Check that intro and intro->extend_info are non-NULL.
        * Log a warning and ignore this intro if either is NULL. */
       if (! BUG(!intro) && ! BUG(!intro->extend_info)) {
-        char buf[HEX_DIGEST_LEN+1];
-        base16_encode(buf, HEX_DIGEST_LEN+1,
+        char fingerprint[HEX_DIGEST_LEN+1];
+        base16_encode(fingerprint, HEX_DIGEST_LEN+1,
                       intro->extend_info->identity_digest,
                       DIGEST_LEN);
         /* Redundant: a hex string will always be allowed in a tagged event */
-        tor_assert(privcount_tagged_str_is_clean(buf));
-        smartlist_add_strdup(fingerprints, buf);
+        tor_assert(privcount_tagged_str_is_clean(fingerprint));
+        smartlist_add_strdup(fingerprints, fingerprint);
       }
     } SMARTLIST_FOREACH_END(intro);
 
