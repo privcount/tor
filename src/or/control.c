@@ -7000,7 +7000,13 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
  * This event uses positional fields: order is important.
  * orcirc must not be NULL. */
 static void
-control_event_privcount_circuit_ended(or_circuit_t *orcirc)
+control_event_privcount_circuit_ended(const or_circuit_t *orcirc,
+                                      const char *created_str,
+                                      const char *now_str,
+                                      const char *p_addr,
+                                      int prev_is_client,
+                                      const char *n_addr,
+                                      int next_is_edge)
 {
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return;
@@ -7010,22 +7016,6 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
   if (!privcount_data_is_used_for_circuit_events(TO_CIRCUIT(orcirc))) {
     return;
   }
-
-  /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
-  /* the difference between timestamp_created and timestamp_began only
-   * matters on clients */
-  char *created_str = privcount_timeval_to_epoch_str_dup(
-                                            &orcirc->base_.timestamp_created,
-                                            NULL);
-
-  /* we already know this is not an origin circ since we have a or_circuit_t
-   * struct. But orcirc->p_chan can still be NULL here. */
-  int prev_is_client = privcount_is_client(orcirc->p_chan);
-  int next_is_edge = privcount_data_is_exit(NULL, orcirc);
-
-  char *p_addr = privcount_chan_addr_to_str_dup(orcirc->p_chan);
-  char *n_addr = privcount_chan_addr_to_str_dup(orcirc->base_.n_chan);
 
   /* ChanID, CircID, NCellsIn, NCellsOut, ReadBWExit, WriteBWExit, TimeStart,
    * TimeEnd, PrevIP, PrevIsClient, NextIP, NextIsEdge */
@@ -7045,11 +7035,45 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
                      prev_is_client,
                      n_addr,
                      next_is_edge);
+}
 
-  tor_free(now_str);
-  tor_free(created_str);
-  tor_free(p_addr);
-  tor_free(n_addr);
+/* Add the common cell and circuit tagged fields in circ to fields */
+static void
+privcount_add_circuit_common_fields(smartlist_t *fields,
+                                    const circuit_t *circ)
+{
+  tor_assert(fields);
+
+  /* TO_OR_CIRCUIT() doesn't actually modify circ */
+  const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
+
+  if (orcirc) {
+    if (orcirc->p_chan) {
+      smartlist_add_asprintf(fields, "PreviousChannelId=%" PRIu64,
+          privcount_or_circuit_p_chan_global_identifier(orcirc));
+    }
+
+    smartlist_add_asprintf(fields, "PreviousCircuitId=%" PRIu32,
+                           privcount_or_circuit_p_circ_id(orcirc));
+  }
+
+  if (circ) {
+    if (circ->n_chan) {
+      smartlist_add_asprintf(fields, "NextChannelId=%" PRIu64,
+                             privcount_circuit_n_chan_global_identifier(circ));
+    }
+
+    smartlist_add_asprintf(fields, "NextCircuitId=%" PRIu32,
+                           privcount_circuit_n_circ_id(circ));
+
+    /* This flag is sometimes set to the line number, but all we want is
+     * a boolean */
+    smartlist_add_asprintf(fields, "CircuitMarkedForCloseFlag=%d",
+                           !! circ->marked_for_close);
+
+    smartlist_add_asprintf(fields, "CircuitIsOriginFlag=%d",
+                           CIRCUIT_IS_ORIGIN(circ));
+  }
 }
 
 /* Send a PrivCount circuit cell event triggered on:
@@ -7144,27 +7168,9 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   smartlist_add(fields,
                 privcount_timeval_now_to_epoch_str_dup("EventTimestamp="));
 
-  if (orcirc) {
-    if (orcirc->p_chan) {
-      smartlist_add_asprintf(fields, "PreviousChannelId=%" PRIu64,
-          privcount_or_circuit_p_chan_global_identifier(orcirc));
-    }
-
-    smartlist_add_asprintf(fields, "PreviousCircuitId=%" PRIu32,
-                           privcount_or_circuit_p_circ_id(orcirc));
-  }
-
-  if (circ) {
-    if (circ->n_chan) {
-      smartlist_add_asprintf(fields, "NextChannelId=%" PRIu64,
-                             privcount_circuit_n_chan_global_identifier(circ));
-    }
-
-    smartlist_add_asprintf(fields, "NextCircuitId=%" PRIu32,
-                           privcount_circuit_n_circ_id(circ));
-  }
-
   /* Leave out cell_num */
+
+  privcount_add_circuit_common_fields(fields, circ);
 
   const char *cell_command_string = cell_command_to_string(cell->command);
   if (cell_command_string) {
@@ -7234,17 +7240,6 @@ control_event_privcount_circuit_cell(const channel_t *chan,
                            *was_relay_crypt_successful);
   }
 
-  if (circ) {
-    /* This flag is sometimes set to the line number, but all we want is
-     * a boolean */
-    smartlist_add_asprintf(fields, "CircuitMarkedForCloseFlag=%d",
-                           !! circ->marked_for_close);
-
-    /* Can we just put this in the circuit event? */
-    smartlist_add_asprintf(fields, "CircuitIsOriginFlag=%d",
-                           CIRCUIT_IS_ORIGIN(circ));
-  }
-
   /* Now create the final string */
 
   size_t len = 0;
@@ -7275,6 +7270,11 @@ void
 control_event_privcount_circuit_close(circuit_t *circ,
                                       int is_legacy_circuit_end)
 {
+  /* Just in case */
+  if (!get_options()->EnablePrivCount) {
+    return;
+  }
+
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE) &&
       !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return;
@@ -7298,18 +7298,118 @@ control_event_privcount_circuit_close(circuit_t *circ,
     return;
   }
 
-  /* Field list TODO:
-   * - is_legacy_circuit_end
-   * - CIRCUIT_IS_ORIGIN()/CIRCUIT_IS_ORCIRC()
-   */
+  /* Format the legacy fields: we use them in both events */
+
+  tor_assert(circ);
+  const or_circuit_t *orcirc = TO_OR_CIRCUIT(circ);
+
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
+  /* the difference between timestamp_created and timestamp_began only
+   * matters on clients */
+  char *created_str = privcount_timeval_to_epoch_str_dup(
+                                            &orcirc->base_.timestamp_created,
+                                            NULL);
+
+  /* Either orcirc or orcirc->p_chan can be NULL here. */
+  int prev_is_client = privcount_is_client(orcirc ? orcirc->p_chan : NULL);
+  int next_is_edge = privcount_data_is_exit(NULL, orcirc);
+
+  char *p_addr = privcount_chan_addr_to_str_dup(
+                                              orcirc ? orcirc->p_chan : NULL);
+  char *n_addr = privcount_chan_addr_to_str_dup(circ->n_chan);
+
+  /* Cleanse the address strings we just created: this is good for legacy
+   * events too, because they can't cope with spaces */
+  privcount_cleanse_tagged_str(p_addr);
+  privcount_cleanse_tagged_str(n_addr);
+
+  /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* Use generic names so coding the injector is easier */
+  tor_assert(privcount_tagged_str_is_clean(now_str));
+  smartlist_add_asprintf(fields, "EventTimestamp=%s",
+                         now_str);
+
+  tor_assert(privcount_tagged_str_is_clean(created_str));
+  smartlist_add_asprintf(fields, "CreatedTimestamp=%s",
+                         created_str);
+
+  /* Use this flag to transition from the legacy circuit event */
+  smartlist_add_asprintf(fields, "IsLegacyCircuitEndEventSentFlag=%d",
+                         is_legacy_circuit_end);
+
+  privcount_add_circuit_common_fields(fields, circ);
+
+  if (orcirc && orcirc->p_chan) {
+    smartlist_add_asprintf(fields, "PreviousNodeIsClientFlag=%d",
+                           prev_is_client);
+
+    tor_assert(privcount_tagged_str_is_clean(p_addr));
+    smartlist_add_asprintf(fields, "PreviousNodeIPAddress=%s",
+                           p_addr);
+
+
+    smartlist_add_asprintf(fields, "InboundExitCellCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_cells_inbound(orcirc));
+
+    smartlist_add_asprintf(fields, "OutboundExitCellCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_cells_outbound(orcirc));
+
+    smartlist_add_asprintf(fields, "InboundExitByteCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_bytes_inbound(orcirc));
+
+    smartlist_add_asprintf(fields, "OutboundExitByteCount=%" PRIu64,
+                           privcount_or_circuit_n_exit_bytes_outbound(orcirc));
+  }
+
+  if (circ && circ->n_chan) {
+    /* If this flag is true, the next node is not an OR node.
+     * Instead, this is an Exit circuit at an Exit: the next nodes are
+     * Internet servers accessed via edge connections. */
+    smartlist_add_asprintf(fields, "NextNodeIsEdgeFlag=%d",
+                           next_is_edge);
+
+    tor_assert(privcount_tagged_str_is_clean(n_addr));
+    smartlist_add_asprintf(fields, "NextNodeIPAddress=%s",
+                           n_addr);
+  }
+
+  /* Now create the final string */
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory, so the string will never be empty */
+  tor_assert(len > 0);
 
   send_control_event(EVENT_PRIVCOUNT_CIRCUIT_CLOSE,
-                     "650 PRIVCOUNT_CIRCUIT_CLOSE");
+                     "650 PRIVCOUNT_CIRCUIT_CLOSE %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
 
   /* Also emit the legacy event format */
-  if (is_legacy_circuit_end && !CIRCUIT_IS_ORIGIN(circ)) {
-    control_event_privcount_circuit_ended(TO_OR_CIRCUIT(circ));
+  if (is_legacy_circuit_end) {
+    if (BUG(!CIRCUIT_IS_ORCIRC(circ))) {
+      return;
+    }
+    control_event_privcount_circuit_ended(orcirc,
+                                          created_str,
+                                          now_str,
+                                          p_addr,
+                                          prev_is_client,
+                                          n_addr,
+                                          next_is_edge);
   }
+
+  tor_free(now_str);
+  tor_free(created_str);
+  tor_free(p_addr);
+  tor_free(n_addr);
 }
 
 /* Send a PrivCount connection end event triggered on orconn, which can be any
