@@ -2720,12 +2720,12 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
       or_circ = TO_OR_CIRCUIT(circ);
       if (chan == or_circ->p_chan) {
         or_circ->privcount_n_exit_cells_inbound = privcount_add_saturating(
-                                                or_circ->privcount_n_exit_cells_inbound,
-                                                1);
+                                      or_circ->privcount_n_exit_cells_inbound,
+                                      1);
       } else if (chan == circ->n_chan) {
         or_circ->privcount_n_exit_cells_outbound = privcount_add_saturating(
-                                                or_circ->privcount_n_exit_cells_outbound,
-                                                1);
+                                      or_circ->privcount_n_exit_cells_outbound,
+                                      1);
       }
     }
 

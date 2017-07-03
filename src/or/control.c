@@ -6178,8 +6178,8 @@ int
 privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
                                          const or_circuit_t *orcirc)
 {
-  /* These events use byte counts via edge_connection_t's privcount_n_exit_bytes_inbound or
-   * privcount_n_exit_bytes_outbound. */
+  /* These events use byte counts via edge_connection_t's
+   * privcount_n_exit_bytes_inbound or privcount_n_exit_bytes_outbound. */
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED) &&
       !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return 0;
@@ -6205,8 +6205,8 @@ privcount_data_is_used_for_circuit_events(const circuit_t *circ)
 int
 privcount_data_is_used_for_cell_counters(const circuit_t *circ)
 {
-  /* These events use cell counts via edge_connection_t's privcount_n_exit_cells_inbound
-   * or privcount_n_exit_cells_outbound. */
+  /* These events use cell counts via edge_connection_t's
+   * privcount_n_exit_cells_inbound or privcount_n_exit_cells_outbound. */
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return 0;
   }
@@ -6549,9 +6549,11 @@ privcount_edge_connection_port(const edge_connection_t *exitconn)
   }
 }
 
-/* Return exitconn->privcount_n_exit_bytes_inbound, or 0 if exitconn is NULL. */
+/* Return exitconn->privcount_n_exit_bytes_inbound, or 0 if exitconn is
+ * NULL. */
 static uint64_t
-privcount_edge_connection_n_exit_bytes_inbound(const edge_connection_t *exitconn)
+privcount_edge_connection_n_exit_bytes_inbound(
+                                            const edge_connection_t *exitconn)
 {
   if (exitconn) {
     return exitconn->privcount_n_exit_bytes_inbound;
@@ -6560,9 +6562,11 @@ privcount_edge_connection_n_exit_bytes_inbound(const edge_connection_t *exitconn
   }
 }
 
-/* Return exitconn->privcount_n_exit_bytes_outbound, or 0 if exitconn is NULL. */
+/* Return exitconn->privcount_n_exit_bytes_outbound, or 0 if exitconn is NULL.
+ */
 static uint64_t
-privcount_edge_connection_n_exit_bytes_outbound(const edge_connection_t *exitconn)
+privcount_edge_connection_n_exit_bytes_outbound(
+                                            const edge_connection_t *exitconn)
 {
   if (exitconn) {
     return exitconn->privcount_n_exit_bytes_outbound;

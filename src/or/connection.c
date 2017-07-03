@@ -3671,11 +3671,11 @@ connection_read_to_buf(connection_t *conn, ssize_t *max_to_read,
        * Avoid updating the counters if we will never use them. */
       if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
         exitconn->privcount_n_exit_bytes_inbound = privcount_add_saturating(
-                                                  exitconn->privcount_n_exit_bytes_inbound,
-                                                  n_read);
+                                      exitconn->privcount_n_exit_bytes_inbound,
+                                      n_read);
         orcirc->privcount_n_exit_bytes_inbound = privcount_add_saturating(
-                                                  orcirc->privcount_n_exit_bytes_inbound,
-                                                  n_read);
+                                      orcirc->privcount_n_exit_bytes_inbound,
+                                      n_read);
       }
       if (privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
         control_event_privcount_stream_bytes_transferred(exitconn, orcirc,
@@ -3982,11 +3982,11 @@ connection_handle_write_impl(connection_t *conn, int force)
      * Avoid updating the counters if we will never use them. */
     if (privcount_data_is_used_for_byte_counters(exitconn, orcirc)) {
       exitconn->privcount_n_exit_bytes_outbound = privcount_add_saturating(
-                                                exitconn->privcount_n_exit_bytes_outbound,
-                                                n_written);
+                                    exitconn->privcount_n_exit_bytes_outbound,
+                                    n_written);
       orcirc->privcount_n_exit_bytes_outbound = privcount_add_saturating(
-                                                orcirc->privcount_n_exit_bytes_outbound,
-                                                n_written);
+                                    orcirc->privcount_n_exit_bytes_outbound,
+                                    n_written);
     }
     if (privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
       control_event_privcount_stream_bytes_transferred(exitconn, orcirc,
