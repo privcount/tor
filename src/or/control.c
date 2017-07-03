@@ -7176,7 +7176,7 @@ control_event_privcount_circuit_cell(const channel_t *chan,
 
   /* Extracting the relay command is unreliable.
    * But let's try anyway. */
-  int try_relay_command;
+  int try_relay_command = 0;
   if (is_sent == PRIVCOUNT_CELL_SENT) {
     /* We should be able to read our own cells */
     try_relay_command = 1;
