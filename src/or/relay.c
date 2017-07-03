@@ -2719,12 +2719,12 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
        * sets it before using it, too. */
       or_circ = TO_OR_CIRCUIT(circ);
       if (chan == or_circ->p_chan) {
-        or_circ->privcount_n_cells_in = privcount_add_saturating(
-                                                or_circ->privcount_n_cells_in,
+        or_circ->privcount_n_exit_cells_inbound = privcount_add_saturating(
+                                                or_circ->privcount_n_exit_cells_inbound,
                                                 1);
       } else if (chan == circ->n_chan) {
-        or_circ->privcount_n_cells_out = privcount_add_saturating(
-                                                or_circ->privcount_n_cells_out,
+        or_circ->privcount_n_exit_cells_outbound = privcount_add_saturating(
+                                                or_circ->privcount_n_exit_cells_outbound,
                                                 1);
       }
     }

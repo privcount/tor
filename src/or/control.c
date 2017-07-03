@@ -6178,8 +6178,8 @@ int
 privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
                                          const or_circuit_t *orcirc)
 {
-  /* These events use byte counts via edge_connection_t's privcount_n_read or
-   * privcount_n_written. */
+  /* These events use byte counts via edge_connection_t's privcount_n_exit_bytes_inbound or
+   * privcount_n_exit_bytes_outbound. */
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED) &&
       !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return 0;
@@ -6205,8 +6205,8 @@ privcount_data_is_used_for_circuit_events(const circuit_t *circ)
 int
 privcount_data_is_used_for_cell_counters(const circuit_t *circ)
 {
-  /* These events use cell counts via edge_connection_t's privcount_n_cells_in
-   * or privcount_n_cells_out. */
+  /* These events use cell counts via edge_connection_t's privcount_n_exit_cells_inbound
+   * or privcount_n_exit_cells_outbound. */
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
     return 0;
   }
@@ -6483,45 +6483,45 @@ privcount_circuit_n_circ_id(const circuit_t *circ)
   }
 }
 
-/* Return orcirc->privcount_n_cells_in, or 0 if orcirc is NULL. */
+/* Return orcirc->privcount_n_exit_cells_inbound, or 0 if orcirc is NULL. */
 static uint64_t
-privcount_or_circuit_n_cells_in(const or_circuit_t *orcirc)
+privcount_or_circuit_n_exit_cells_inbound(const or_circuit_t *orcirc)
 {
   if (orcirc) {
-    return orcirc->privcount_n_cells_in;
+    return orcirc->privcount_n_exit_cells_inbound;
   } else {
     return 0;
   }
 }
 
-/* Return orcirc->privcount_n_cells_out, or 0 if orcirc is NULL. */
+/* Return orcirc->privcount_n_exit_cells_outbound, or 0 if orcirc is NULL. */
 static uint64_t
-privcount_or_circuit_n_cells_out(const or_circuit_t *orcirc)
+privcount_or_circuit_n_exit_cells_outbound(const or_circuit_t *orcirc)
 {
   if (orcirc) {
-    return orcirc->privcount_n_cells_out;
+    return orcirc->privcount_n_exit_cells_outbound;
   } else {
     return 0;
   }
 }
 
-/* Return orcirc->privcount_n_read, or 0 if orcirc is NULL. */
+/* Return orcirc->privcount_n_exit_bytes_inbound, or 0 if orcirc is NULL. */
 static uint64_t
-privcount_or_circuit_n_read(const or_circuit_t *orcirc)
+privcount_or_circuit_n_exit_bytes_inbound(const or_circuit_t *orcirc)
 {
   if (orcirc) {
-    return orcirc->privcount_n_read;
+    return orcirc->privcount_n_exit_bytes_inbound;
   } else {
     return 0;
   }
 }
 
-/* Return orcirc->privcount_n_written, or 0 if orcirc is NULL. */
+/* Return orcirc->privcount_n_exit_bytes_outbound, or 0 if orcirc is NULL. */
 static uint64_t
-privcount_or_circuit_n_written(const or_circuit_t *orcirc)
+privcount_or_circuit_n_exit_bytes_outbound(const or_circuit_t *orcirc)
 {
   if (orcirc) {
-    return orcirc->privcount_n_written;
+    return orcirc->privcount_n_exit_bytes_outbound;
   } else {
     return 0;
   }
@@ -6549,23 +6549,23 @@ privcount_edge_connection_port(const edge_connection_t *exitconn)
   }
 }
 
-/* Return exitconn->privcount_n_read, or 0 if exitconn is NULL. */
+/* Return exitconn->privcount_n_exit_bytes_inbound, or 0 if exitconn is NULL. */
 static uint64_t
-privcount_edge_connection_n_read(const edge_connection_t *exitconn)
+privcount_edge_connection_n_exit_bytes_inbound(const edge_connection_t *exitconn)
 {
   if (exitconn) {
-    return exitconn->privcount_n_read;
+    return exitconn->privcount_n_exit_bytes_inbound;
   } else {
     return 0;
   }
 }
 
-/* Return exitconn->privcount_n_written, or 0 if exitconn is NULL. */
+/* Return exitconn->privcount_n_exit_bytes_outbound, or 0 if exitconn is NULL. */
 static uint64_t
-privcount_edge_connection_n_written(const edge_connection_t *exitconn)
+privcount_edge_connection_n_exit_bytes_outbound(const edge_connection_t *exitconn)
 {
   if (exitconn) {
-    return exitconn->privcount_n_written;
+    return exitconn->privcount_n_exit_bytes_outbound;
   } else {
     return 0;
   }
@@ -6977,8 +6977,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
                      privcount_or_circuit_p_circ_id(orcirc),
                      privcount_edge_connection_stream_id(exitconn),
                      privcount_edge_connection_port(exitconn),
-                     privcount_edge_connection_n_read(exitconn),
-                     privcount_edge_connection_n_written(exitconn),
+                     privcount_edge_connection_n_exit_bytes_inbound(exitconn),
+                     privcount_edge_connection_n_exit_bytes_outbound(exitconn),
                      created_str,
                      now_str,
                      host_str,
@@ -7031,10 +7031,10 @@ control_event_privcount_circuit_ended(or_circuit_t *orcirc)
                      " %s %s %s %d %s %d\r\n",
                      privcount_or_circuit_p_chan_global_identifier(orcirc),
                      privcount_or_circuit_p_circ_id(orcirc),
-                     privcount_or_circuit_n_cells_in(orcirc),
-                     privcount_or_circuit_n_cells_out(orcirc),
-                     privcount_or_circuit_n_read(orcirc),
-                     privcount_or_circuit_n_written(orcirc),
+                     privcount_or_circuit_n_exit_cells_inbound(orcirc),
+                     privcount_or_circuit_n_exit_cells_outbound(orcirc),
+                     privcount_or_circuit_n_exit_bytes_inbound(orcirc),
+                     privcount_or_circuit_n_exit_bytes_outbound(orcirc),
                      created_str,
                      now_str,
                      p_addr,
