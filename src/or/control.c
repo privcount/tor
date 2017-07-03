@@ -6812,6 +6812,53 @@ privcount_list_hs_v2_intro_point_fingerprints(
   return result_string;
 }
 
+/* Allocate and return a string containing a list of the relay's flags.
+ * The returned string is never NULL.
+ * If rs is NULL, a newly allocated copy of an empty string is returned.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_list_routerstatus_flags(const routerstatus_t *rs)
+{
+  char *result_string = NULL;
+
+  if (!rs) {
+    return tor_strdup("");
+  }
+
+  /* Modified from routerstatus_format_entry() */
+  tor_asprintf(&result_string,
+               "%s%s%s%s%s%s%s%s%s%s",
+               /* These should stay in alphabetical order for consistency. */
+               rs->is_authority?",Authority":"",
+               rs->is_bad_exit?",BadExit":"",
+               rs->is_exit?",Exit":"",
+               rs->is_fast?",Fast":"",
+               rs->is_possible_guard?",Guard":"",
+               rs->is_hs_dir?",HSDir":"",
+               rs->is_flagged_running?",Running":"",
+               rs->is_stable?",Stable":"",
+               rs->is_v2_dir?",V2Dir":"",
+               rs->is_valid?",Valid":"");
+
+  tor_assert(result_string);
+
+  /* We want Flag,Flag,Flag, not ,Flag,Flag,Flag */
+  if (strlen(result_string) > 0) {
+    size_t orig_len = strlen(result_string);
+    tor_assert(*result_string == ',');
+
+    /* Copy everything after the first comma, including the terminating NUL,
+     * over the first comma */
+    memmove(result_string, result_string + 1, orig_len);
+
+    /* String manipulation is easy to get wrong */
+    tor_assert(*result_string != ',');
+    tor_assert(strlen(result_string) == orig_len - 1);
+  }
+
+  return result_string;
+}
+
 /* PrivCount event functions */
 
 /* Send a PrivCount DNS resolution event triggered on exitconn and orcirc.
@@ -7257,6 +7304,45 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   smartlist_free(fields);
 }
 
+/* Add the tagged fields for node to fields, prefixing the keys with prefix */
+static void
+privcount_add_node_fields(smartlist_t *fields,
+                          const node_t *node,
+                          const char *prefix)
+{
+  tor_assert(fields);
+
+  if (!prefix) {
+    prefix = "";
+  }
+
+  if (node) {
+
+    /* Fingerprint */
+
+    char fingerprint[HEX_DIGEST_LEN+1];
+    base16_encode(fingerprint, HEX_DIGEST_LEN+1,
+                  node->identity,
+                  DIGEST_LEN);
+    /* Redundant: a hex string will always be allowed in a tagged event */
+    tor_assert(privcount_tagged_str_is_clean(fingerprint));
+
+    smartlist_add_asprintf(fields, "%sFingerprint=%s",
+                           prefix, fingerprint);
+
+    /* Don't add nickname and addr, they're not that important
+     * (and we already have previous and next addresses in this event) */
+
+    if (node->rs) {
+      char *relay_flags = privcount_list_routerstatus_flags(node->rs);
+      /* Assume the flag list is ok to use as an event value */
+      smartlist_add_asprintf(fields, "%sRelayFlagList=%s",
+                             prefix, relay_flags);
+      tor_free(relay_flags);
+    }
+  }
+}
+
 /* Send a PrivCount circuit close event triggered on circ, which can be any
  * type of circuit, and in any position in the circuit (including the origin).
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
@@ -7350,6 +7436,8 @@ control_event_privcount_circuit_close(circuit_t *circ,
     smartlist_add_asprintf(fields, "PreviousNodeIPAddress=%s",
                            p_addr);
 
+    const node_t* prev_node = node_get_by_id(orcirc->p_chan->identity_digest);
+    privcount_add_node_fields(fields, prev_node, "PreviousNode");
 
     smartlist_add_asprintf(fields, "InboundExitCellCount=%" PRIu64,
                            privcount_or_circuit_n_exit_cells_inbound(orcirc));
@@ -7374,6 +7462,9 @@ control_event_privcount_circuit_close(circuit_t *circ,
     tor_assert(privcount_tagged_str_is_clean(n_addr));
     smartlist_add_asprintf(fields, "NextNodeIPAddress=%s",
                            n_addr);
+
+    const node_t* next_node = node_get_by_id(circ->n_chan->identity_digest);
+    privcount_add_node_fields(fields, next_node, "NextNode");
   }
 
   /* Now create the final string */
