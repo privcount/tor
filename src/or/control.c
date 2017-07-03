@@ -7042,6 +7042,8 @@ static void
 privcount_add_circuit_common_fields(smartlist_t *fields,
                                     const circuit_t *circ)
 {
+  tor_assert(fields);
+
   /* TO_OR_CIRCUIT() doesn't actually modify circ */
   const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
 
@@ -7311,7 +7313,6 @@ control_event_privcount_circuit_close(circuit_t *circ,
 
   /* Either orcirc or orcirc->p_chan can be NULL here. */
   int prev_is_client = privcount_is_client(orcirc ? orcirc->p_chan : NULL);
-  int next_is_client = privcount_is_client(circ->n_chan);
   int next_is_edge = privcount_data_is_exit(NULL, orcirc);
 
   char *p_addr = privcount_chan_addr_to_str_dup(
@@ -7336,24 +7337,19 @@ control_event_privcount_circuit_close(circuit_t *circ,
                          created_str);
 
   /* Use this flag to transition from the legacy circuit event */
-  smartlist_add_asprintf(fields, "IsLegacyCircuitEndEventFlag=%d",
+  smartlist_add_asprintf(fields, "IsLegacyCircuitEndEventSentFlag=%d",
                          is_legacy_circuit_end);
 
   privcount_add_circuit_common_fields(fields, circ);
 
   if (orcirc && orcirc->p_chan) {
-    smartlist_add_asprintf(fields, "PreviousIsClientFlag=%d",
+    smartlist_add_asprintf(fields, "PreviousNodeIsClientFlag=%d",
                            prev_is_client);
 
     tor_assert(privcount_tagged_str_is_clean(p_addr));
-    smartlist_add_asprintf(fields, "PreviousIPAddress=%s",
+    smartlist_add_asprintf(fields, "PreviousNodeIPAddress=%s",
                            p_addr);
 
-    smartlist_add_asprintf(fields, "PreviousIsClientFlag=%d",
-                           prev_is_client);
-
-    smartlist_add_asprintf(fields, "PreviousIsClientFlag=%d",
-                           prev_is_client);
 
     smartlist_add_asprintf(fields, "InboundExitCellCount=%" PRIu64,
                            privcount_or_circuit_n_exit_cells_inbound(orcirc));
@@ -7369,15 +7365,14 @@ control_event_privcount_circuit_close(circuit_t *circ,
   }
 
   if (circ && circ->n_chan) {
-    smartlist_add_asprintf(fields, "NextIsEdgeFlag=%d",
+    /* If this flag is true, the next node is not an OR node.
+     * Instead, this is an Exit circuit at an Exit: the next nodes are
+     * Internet servers accessed via edge connections. */
+    smartlist_add_asprintf(fields, "NextNodeIsEdgeFlag=%d",
                            next_is_edge);
 
-    /* This should never be true: the next hop should always be a relay. */
-    smartlist_add_asprintf(fields, "NextIsClientFlag=%d",
-                           next_is_client);
-
     tor_assert(privcount_tagged_str_is_clean(n_addr));
-    smartlist_add_asprintf(fields, "NextIPAddress=%s",
+    smartlist_add_asprintf(fields, "NextNodeIPAddress=%s",
                            n_addr);
   }
 
