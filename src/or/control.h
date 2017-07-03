@@ -185,16 +185,16 @@ void control_event_privcount_connection_ended(const or_connection_t *orconn);
 /* Forward declaration to avoid including hs_cache.h */
 typedef struct hs_cache_dir_descriptor_t hs_cache_dir_descriptor_t;
 void control_event_privcount_hsdir_cache_store(
-                                      int hs_version_number,
-                                      int has_existing_cache_entry_flag,
-                                      int was_added_to_cache_flag,
-                                      const char *cache_reason_string,
-                                      const char *desc_id_base32,
-                                      rend_service_descriptor_t *hsv2_desc,
-                                      const char *hsv2_desc_body,
-                                      hs_cache_dir_descriptor_t *hsv3_desc,
-                                      ssize_t encoded_descriptor_byte_count,
-                                      ssize_t encoded_intro_point_byte_count);
+                                    int hs_version_number,
+                                    int has_existing_cache_entry_flag,
+                                    int was_added_to_cache_flag,
+                                    const char *cache_reason_string,
+                                    const char *desc_id_base32,
+                                    const rend_service_descriptor_t *hsv2_desc,
+                                    const char *hsv2_desc_body,
+                                    const hs_cache_dir_descriptor_t *hsv3_desc,
+                                    ssize_t encoded_descriptor_byte_count,
+                                    ssize_t encoded_intro_point_byte_count);
 
 void control_free_all(void);
 
