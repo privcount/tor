@@ -6243,7 +6243,8 @@ privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
   /* These events use byte counts via edge_connection_t's
    * privcount_n_exit_bytes_inbound or privcount_n_exit_bytes_outbound. */
   if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_STREAM_ENDED) &&
-      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE)) {
     return 0;
   }
 
