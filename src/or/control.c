@@ -5998,21 +5998,6 @@ privcount_to_edge_conn(connection_t *conn)
   return TO_EDGE_CONN(conn);
 }
 
-/* Some compilers are smart enough to work out that we don't use this function
- * yet. */
-#if 0
-
-/* Like privcount_to_edge_conn, but with casts that tell the
- * compiler we're not actually modifying anything */
-static const edge_connection_t*
-privcount_to_const_edge_conn(const connection_t *conn)
-{
-  return (const edge_connection_t *)privcount_to_edge_conn(
-                                                        (connection_t *)conn);
-}
-
-#endif
-
 /* A safe version of TO_CIRCUIT() that returns NULL when circ is NULL */
 #define PRIVCOUNT_TO_CIRC(circ) ((circ) ? TO_CIRCUIT((circ)) : NULL)
 
@@ -6369,19 +6354,6 @@ privcount_add_saturating(uint64_t a, uint64_t b)
     return a + b;
   } else {
     return UINT64_MAX;
-  }
-}
-
-/* Check that input fits inside a signed 64-bit integer.
- * If input is greater than INT64_MAX, log a warning and return INT64_MAX.
- * Otherwise, return input. */
-int64_t
-privcount_check_range_i64(uint64_t input)
-{
-  if (BUG(input > INT64_MAX)) {
-    return INT64_MAX;
-  } else {
-    return input;
   }
 }
 
