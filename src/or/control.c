@@ -5958,15 +5958,76 @@ privcount_connection_is_dns_resolve(const connection_t* conn)
 }
 #endif
 
+/* A safe version of TO_OR_CIRCUIT() that returns NULL when circ is NULL or
+ * circ is not an OR circuit */
+static or_circuit_t*
+privcount_to_or_circ(circuit_t *circ)
+{
+  if (!circ) {
+    return NULL;
+  }
+
+  if (!CIRCUIT_IS_ORCIRC(circ)) {
+    return NULL;
+  }
+
+  return TO_OR_CIRCUIT(circ);
+}
+
+/* Like privcount_to_or_circ, but with casts that tell the
+ * compiler we're not actually modifying anything */
+static const or_circuit_t*
+privcount_to_const_or_circ(const circuit_t *circ)
+{
+  return (const or_circuit_t *)privcount_to_or_circ((circuit_t *)circ);
+}
+
+/* A safe version of TO_EDGE_CONN() that returns NULL when conn is NULL or
+ * conn is not an edge conn */
+static edge_connection_t*
+privcount_to_edge_conn(connection_t *conn)
+{
+  if (!conn) {
+    return NULL;
+  }
+
+  if (conn->type != CONN_TYPE_EXIT) {
+    return NULL;
+  }
+
+  return TO_EDGE_CONN(conn);
+}
+
+/* Some compilers are smart enough to work out that we don't use this function
+ * yet. */
+#if 0
+
+/* Like privcount_to_edge_conn, but with casts that tell the
+ * compiler we're not actually modifying anything */
+static const edge_connection_t*
+privcount_to_const_edge_conn(const connection_t *conn)
+{
+  return (const edge_connection_t *)privcount_to_edge_conn(
+                                                        (connection_t *)conn);
+}
+
+#endif
+
+/* A safe version of TO_CIRCUIT() that returns NULL when circ is NULL */
+#define PRIVCOUNT_TO_CIRC(circ) ((circ) ? TO_CIRCUIT((circ)) : NULL)
+
+/* A safe version of TO_CONN() that returns NULL when conn is NULL */
+#define PRIVCOUNT_TO_CONN(conn) ((conn) ? TO_CONN((conn)) : NULL)
+
 /* Find the circuit for orcirc or exitconn
  * Either orcirc or exitconn may be NULL, if they are, the other is used.
  * If both are NULL, returns NULL. */
 static circuit_t*
-privcount_get_circuit(edge_connection_t* exitconn,
-                      or_circuit_t *orcirc)
+privcount_get_exit_circ(edge_connection_t* exitconn,
+                        or_circuit_t *orcirc)
 {
   if (orcirc) {
-    return TO_CIRCUIT(orcirc);
+    return PRIVCOUNT_TO_CIRC(orcirc);
   } else if (exitconn) {
     return circuit_get_by_edge_conn(exitconn);
   } else {
@@ -5977,30 +6038,26 @@ privcount_get_circuit(edge_connection_t* exitconn,
 /* Find the or_circuit for orcirc or exitconn
  * Either orcirc or exitconn may be NULL, if they are, the other is used.
  * If both are NULL, or an or_circuit can not be found, returns NULL. */
-or_circuit_t*
-privcount_get_or_circuit(edge_connection_t* exitconn,
-                         or_circuit_t *orcirc)
+static or_circuit_t*
+privcount_get_exit_or_circ(edge_connection_t* exitconn,
+                           or_circuit_t *orcirc)
 {
   if (orcirc) {
     tor_assert_nonfatal(CIRCUIT_IS_ORCIRC(orcirc));
     return orcirc;
   } else {
-    circuit_t* circ = privcount_get_circuit(exitconn, orcirc);
-    if (circ && CIRCUIT_IS_ORCIRC(circ)) {
-      return TO_OR_CIRCUIT(circ);
-    } else {
-      return NULL;
-    }
+    circuit_t* circ = privcount_get_exit_circ(exitconn, orcirc);
+    return privcount_to_or_circ(circ);
   }
 }
 
-/* Like privcount_get_or_circuit, but with casts that tell the compiler we're
+/* Like privcount_get_exit_or_circ, but with casts that tell the compiler we're
  * not actually modifying anything */
 static const or_circuit_t*
-privcount_get_const_or_circuit(const edge_connection_t* exitconn,
-                               const or_circuit_t *orcirc)
+privcount_get_exit_const_or_circ(const edge_connection_t* exitconn,
+                                 const or_circuit_t *orcirc)
 {
-  return (const or_circuit_t *)privcount_get_or_circuit(
+  return (const or_circuit_t *)privcount_get_exit_or_circ(
                                                 (edge_connection_t *)exitconn,
                                                 (or_circuit_t *)orcirc);
 }
@@ -6015,7 +6072,7 @@ privcount_connection_is_exit(const edge_connection_t* exitconn)
     return 0;
   }
 
-  return TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
+  return PRIVCOUNT_TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
 }
 
 /* Is any stream in the linked list starting with exitconn an Exit
@@ -6039,17 +6096,19 @@ privcount_connection_list_any_is_exit(const edge_connection_t* exitconn)
 /* Is orcirc an origin circuit? (a circuit that originated here)
  * If orcirc is NULL, returns 0. */
 static int
-privcount_circuit_is_origin(const or_circuit_t *orcirc)
+privcount_circuit_is_origin(const circuit_t *circ)
 {
-  if (!orcirc) {
+  if (!circ) {
     return 0;
   }
 
   /* if the circuit started here, this is our own stream and we can ignore it
    */
-  if (CIRCUIT_IS_ORIGIN(TO_CIRCUIT(orcirc))) {
+  if (CIRCUIT_IS_ORIGIN(circ)) {
     return 1;
   }
+
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   if (!orcirc->p_chan) {
     return 1;
@@ -6069,9 +6128,10 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
 {
   if (exitconn) {
     /* look up orcirc from exitconn if it is NULL */
-    const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+    const or_circuit_t* oc = privcount_get_exit_const_or_circ(exitconn,
+                                                              orcirc);
 
-    if (privcount_circuit_is_origin(oc)) {
+    if (oc && privcount_circuit_is_origin(PRIVCOUNT_TO_CIRC(oc))) {
       return 0;
     }
 
@@ -6079,20 +6139,22 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
   }
 
   if (orcirc && !exitconn) {
+    const circuit_t *circ = PRIVCOUNT_TO_CIRC(orcirc);
+    tor_assert(circ);
 
-    if (privcount_circuit_is_origin(orcirc)) {
+    if (privcount_circuit_is_origin(circ)) {
       return 0;
     }
 
     /* If there are no streams, fall back to checking the consensus */
     if (!orcirc->n_streams && !orcirc->resolving_streams) {
 
-      if (!TO_CONN(orcirc)->n_chan) {
+      if (!circ->n_chan) {
         /* Probably an unused or cleaned up exit connection */
         return 1;
       }
 
-      if (!privcount_is_client(TO_CONN(orcirc)->n_chan)) {
+      if (!privcount_is_client(circ->n_chan)) {
         /* Definitely not an exit connection */
         return 0;
       }
@@ -6142,7 +6204,7 @@ privcount_data_is_used(const connection_t* conn, const circuit_t *circ)
 
   /* if the circuit started here, this is our own stream and we can ignore it
    */
-  if (circ && CIRCUIT_IS_ORIGIN(circ)) {
+  if (circ && privcount_circuit_is_origin(circ)) {
     return 0;
   }
 
@@ -6157,14 +6219,14 @@ privcount_data_is_used(const connection_t* conn, const circuit_t *circ)
  * connection and circuit?
  * If orcirc is NULL, it is looked up from exitconn.
  * If exitconn is NULL, orcirc is checked. */
-int
+static int
 privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
                                          const or_circuit_t *orcirc)
 {
-  const or_circuit_t* oc = privcount_get_const_or_circuit(exitconn, orcirc);
+  const or_circuit_t* oc = privcount_get_exit_const_or_circ(exitconn, orcirc);
 
-  if (!privcount_data_is_used(exitconn ? TO_CONN(exitconn) : NULL,
-                              oc ? TO_CIRCUIT(oc) : NULL)) {
+  if (!privcount_data_is_used(PRIVCOUNT_TO_CONN(exitconn),
+                              PRIVCOUNT_TO_CIRC(oc))) {
     return 0;
   }
 
@@ -6231,12 +6293,12 @@ privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
                                       const or_circuit_t *orcirc)
 {
   /* DNS connections are never directory connections */
-  int is_dir = privcount_data_is_dir(exitconn ? TO_CONN(exitconn) : NULL,
-                                     orcirc ? TO_CIRCUIT(orcirc) : NULL);
+  int is_dir = privcount_data_is_dir(PRIVCOUNT_TO_CONN(exitconn),
+                                     PRIVCOUNT_TO_CIRC(orcirc));
   tor_assert_nonfatal(!is_dir);
 
-  return privcount_data_is_used(exitconn ? TO_CONN(exitconn) : NULL,
-                                orcirc ? TO_CIRCUIT(orcirc) : NULL);
+  return privcount_data_is_used(PRIVCOUNT_TO_CONN(exitconn),
+                                PRIVCOUNT_TO_CIRC(orcirc));
 }
 
 /* Is the remote end of chan a relay in our current consensus?
@@ -7003,8 +7065,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
     return;
   }
 
-  const or_circuit_t* orcirc = privcount_get_const_or_circuit(exitconn,
-                                                              NULL);
+  const or_circuit_t* orcirc = privcount_get_exit_const_or_circ(exitconn,
+                                                                NULL);
 
   /* Ignore failed resolves, and other missing circuits */
   if (!orcirc) {
@@ -7080,7 +7142,7 @@ control_event_privcount_circuit_ended(const or_circuit_t *orcirc,
   }
 
   /* Filter out circuit overhead (directory circuits at directories). */
-  if (!privcount_data_is_used_for_circuit_events(TO_CIRCUIT(orcirc))) {
+  if (!privcount_data_is_used_for_circuit_events(PRIVCOUNT_TO_CIRC(orcirc))) {
     return;
   }
 
@@ -7117,8 +7179,7 @@ privcount_add_circuit_id_fields(smartlist_t *fields,
     prefix = "";
   }
 
-  /* TO_OR_CIRCUIT() doesn't actually modify circ */
-  const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   if (orcirc) {
     smartlist_add_asprintf(fields, "%sPreviousCircuitId=%" PRIu32,
@@ -7138,8 +7199,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
 {
   tor_assert(fields);
 
-  /* TO_OR_CIRCUIT() doesn't actually modify circ */
-  const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   if (circ) {
     /* This flag is sometimes set to the line number, but all we want is
@@ -7152,7 +7212,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
 
     /* This is redundant, but might be easier to filter on */
     smartlist_add_asprintf(fields, "CircuitIsOriginFlag=%d",
-                           CIRCUIT_IS_ORIGIN(circ));
+                           privcount_circuit_is_origin(circ));
   }
 
   if (orcirc) {
@@ -7234,8 +7294,7 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   smartlist_add_asprintf(fields, "IsSentFlag=%d",
                          is_sent);
 
-  /* TO_OR_CIRCUIT() doesn't modify circ */
-  const or_circuit_t *orcirc = circ ? TO_OR_CIRCUIT((circuit_t *)circ) : NULL;
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   if (chan && circ) {
 
@@ -7428,7 +7487,7 @@ control_event_privcount_circuit_close(circuit_t *circ,
   /* Format the legacy fields: we use them in both events */
 
   tor_assert(circ);
-  const or_circuit_t *orcirc = TO_OR_CIRCUIT(circ);
+  const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   /* Get the time as early as possible, but after we're sure we want it */
   char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
@@ -7541,7 +7600,8 @@ control_event_privcount_circuit_close(circuit_t *circ,
   /* If it's a rendezvous circuit, also output the IDs of the other circuit
    * it's linked with. */
   if (orcirc && orcirc->rend_splice) {
-    privcount_add_circuit_id_fields(fields, TO_CIRCUIT(orcirc->rend_splice),
+    privcount_add_circuit_id_fields(fields,
+                                    PRIVCOUNT_TO_CIRC(orcirc->rend_splice),
                                     "RendSplice");
   }
 
@@ -7610,7 +7670,8 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   tor_assert(orconn);
 
   /* Filter out connection overhead (directory circuits at directories). */
-  if (!privcount_data_is_used_for_connection_events(TO_CONN(orconn))) {
+  if (!privcount_data_is_used_for_connection_events(
+                                                PRIVCOUNT_TO_CONN(orconn))) {
     return;
   }
 
