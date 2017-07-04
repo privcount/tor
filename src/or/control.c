@@ -6834,8 +6834,7 @@ privcount_free_hs_v2_intro_points(smartlist_t *intro_points)
  * Returns an empty string for 0 intro_points.
  * Returns NULL for NULL intro_points. */
 static char *
-privcount_list_hs_v2_intro_point_fingerprints(
-                                              const smartlist_t *intro_points)
+privcount_list_hs_v2_intro_point_fingerprints(const smartlist_t *intro_points)
 {
   char *result_string = NULL;
 
@@ -7250,7 +7249,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
  *     1 when relay_crypt on a received cell succeeded,
  *     0 when relay_crypt on a received cell failed, and
  *     NULL if a received cell was dropped before relay_crypt was called on it,
-*      or for sent cells.
+ *      or for sent cells.
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
  * Order is unimportant. Unknown fields are left out.
  * Also calls privcount_cell_transfer() to update the circuit cell counts. */
@@ -7308,7 +7307,6 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   if (chan && circ) {
-
     const channel_t* n_chan = circ->n_chan;
     const channel_t* p_chan = orcirc ? orcirc->p_chan : NULL;
 
