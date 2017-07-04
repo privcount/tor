@@ -148,28 +148,18 @@ void control_event_hs_descriptor_content(const char *onion_address,
                                          const char *hsdir_fp,
                                          const char *content);
 
-or_circuit_t* privcount_get_or_circuit(edge_connection_t* exitconn,
-                                       or_circuit_t *orcirc);
-
-int privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
-                                             const or_circuit_t *orcirc);
-int privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
-                                             const or_circuit_t *orcirc);
-
-int privcount_data_is_used_for_circuit_events(const circuit_t *circ);
-int privcount_data_is_used_for_cell_counters(const circuit_t *circ);
-
-int privcount_data_is_used_for_connection_events(const connection_t *conn);
-
-int privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
-                                          const or_circuit_t *orcirc);
-
-uint64_t privcount_add_saturating(uint64_t a, uint64_t b);
-int64_t privcount_check_range_i64(uint64_t input);
-
 char *privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv);
 
 const char *privcount_get_version_str(void);
+
+void privcount_byte_transfer(connection_t *conn,
+                             uint64_t byte_count,
+                             int is_outbound,
+                             int is_legacy_count);
+void privcount_cell_transfer(circuit_t *circ,
+                             const channel_t *chan,
+                             int is_sent,
+                             int is_legacy_count);
 
 /* Positional events */
 void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
@@ -198,7 +188,7 @@ void control_event_privcount_circuit_close(circuit_t *circ,
                                            int is_legacy_circuit_end);
 void control_event_privcount_circuit_cell(
                                         const channel_t *chan,
-                                        const circuit_t *circ,
+                                        circuit_t *circ,
                                         const cell_t *cell,
                                         int is_sent,
                                         const char *is_recognized,

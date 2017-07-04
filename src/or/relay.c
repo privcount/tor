@@ -2712,22 +2712,7 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
      */
     cell = cell_queue_pop(queue);
 
-    if (privcount_data_is_used_for_cell_counters(circ)) {
-      /* We can't use or_circ as-is, because it's only set when
-       * chan == or_circ->p_chan
-       * But it's safe to overwrite it here, because the cell statistics code
-       * sets it before using it, too. */
-      or_circ = TO_OR_CIRCUIT(circ);
-      if (chan == or_circ->p_chan) {
-        or_circ->privcount_n_exit_cells_inbound = privcount_add_saturating(
-                                      or_circ->privcount_n_exit_cells_inbound,
-                                      1);
-      } else if (chan == circ->n_chan) {
-        or_circ->privcount_n_exit_cells_outbound = privcount_add_saturating(
-                                      or_circ->privcount_n_exit_cells_outbound,
-                                      1);
-      }
-    }
+    privcount_cell_transfer(circ, chan, 1, 1);
 
     /* Calculate the exact time that this cell has spent in the queue. */
     if (get_options()->CellStatistics ||
