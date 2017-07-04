@@ -1631,11 +1631,15 @@ typedef struct edge_connection_t {
   uint32_t n_read;
   /* Excludes bytes that privcount considers overhead */
   uint64_t privcount_n_exit_bytes_inbound;
+  /* Counts directory bytes */
+  uint64_t privcount_n_dir_bytes_inbound;
 
   /** Bytes written since last call to control_event_stream_bandwidth_used() */
   uint32_t n_written;
   /* Excludes bytes that privcount considers overhead */
   uint64_t privcount_n_exit_bytes_outbound;
+  /* Counts directory bytes */
+  uint64_t privcount_n_dir_bytes_outbound;
 
   /** True iff this connection is for a DNS request only. */
   unsigned int is_dns_request:1;
@@ -3066,6 +3070,14 @@ typedef struct circuit_t {
 
   /* Has the circuit ended event been emitted? */
   int privcount_event_emitted;
+
+  /* Cell counters for PrivCount: these counters count all cells, including
+   * cells unsent due to error. If you want more specific counts, use the
+   * cell event. */
+  uint64_t privcount_n_cells_sent_inbound;
+  uint64_t privcount_n_cells_received_inbound;
+  uint64_t privcount_n_cells_sent_outbound;
+  uint64_t privcount_n_cells_received_outbound;
 } circuit_t;
 
 /** Largest number of relay_early cells that we can send on a given
@@ -3421,6 +3433,11 @@ typedef struct or_circuit_t {
   uint64_t privcount_n_exit_cells_outbound;
   uint64_t privcount_n_exit_bytes_inbound;
   uint64_t privcount_n_exit_bytes_outbound;
+
+  /* Counts directory bytes */
+  uint64_t privcount_n_dir_bytes_inbound;
+  uint64_t privcount_n_dir_bytes_outbound;
+
 } or_circuit_t;
 
 #if REND_COOKIE_LEN != DIGEST_LEN

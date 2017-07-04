@@ -6236,7 +6236,7 @@ privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
 
 /* Should PrivCount count bytes for this connection and circuit?
  * See privcount_data_is_used_for_stream_events for argument descriptions. */
-int
+static int
 privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
                                          const or_circuit_t *orcirc)
 {
@@ -6254,7 +6254,7 @@ privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
 
 /* Should PrivCount send circuit events for this circuit?
  * If circ is NULL, returns 0. */
-int
+static int
 privcount_data_is_used_for_circuit_events(const circuit_t *circ)
 {
   /* Circuits have a next and previous channel, so unlike stream events,
@@ -6264,12 +6264,13 @@ privcount_data_is_used_for_circuit_events(const circuit_t *circ)
 
 /* Should PrivCount count cells for this circuit?
  * See privcount_data_is_used_for_circuit_events for argument descriptions. */
-int
+static int
 privcount_data_is_used_for_cell_counters(const circuit_t *circ)
 {
   /* These events use cell counts via edge_connection_t's
    * privcount_n_exit_cells_inbound or privcount_n_exit_cells_outbound. */
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED)) {
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_ENDED) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CIRCUIT_CLOSE)) {
     return 0;
   }
 
@@ -6280,7 +6281,7 @@ privcount_data_is_used_for_cell_counters(const circuit_t *circ)
 
 /* Should PrivCount send connection events for this connection?
  * If conn is NULL, return 0. */
-int
+static int
 privcount_data_is_used_for_connection_events(const connection_t *conn)
 {
   return privcount_data_is_used(conn, NULL);
@@ -6288,7 +6289,7 @@ privcount_data_is_used_for_connection_events(const connection_t *conn)
 
 /* Should PrivCount send DNS events from this connection or circuit?
  * See privcount_data_is_used for argument descriptions. */
-int
+static int
 privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
                                       const or_circuit_t *orcirc)
 {
@@ -6358,7 +6359,7 @@ privcount_is_client(const channel_t* chan)
 }
 
 /* Perform a 64-bit saturating add of a and b */
-uint64_t
+static uint64_t
 privcount_add_saturating(uint64_t a, uint64_t b)
 {
   /* Check before performing the addition to avoid overflow, even though it
@@ -7213,6 +7214,11 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
     /* This is redundant, but might be easier to filter on */
     smartlist_add_asprintf(fields, "CircuitIsOriginFlag=%d",
                            privcount_circuit_is_origin(circ));
+
+    /* This flag is set for BEGINDIR circuits, which otherwise look like
+     * Exit circuits */
+    smartlist_add_asprintf(fields, "CircuitIsDirFlag=%d",
+                           privcount_circuit_is_dir(circ));
   }
 
   if (orcirc) {
@@ -7245,10 +7251,11 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
  *     NULL if a received cell was dropped before relay_crypt was called on it,
 *      or for sent cells.
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
- * Order is unimportant. Unknown fields are left out. */
+ * Order is unimportant. Unknown fields are left out.
+ * Also calls privcount_cell_transfer() to update the circuit cell counts. */
 void
 control_event_privcount_circuit_cell(const channel_t *chan,
-                                     const circuit_t *circ,
+                                     circuit_t *circ,
                                      const cell_t *cell,
                                      int is_sent,
                                      const char *is_recognized,
@@ -7281,6 +7288,9 @@ control_event_privcount_circuit_cell(const channel_t *chan,
                                     get_options())) {
     return;
   }
+
+  /* Count this cell for the circuit */
+  privcount_cell_transfer(circ, chan, is_sent, 0);
 
   /* Collect all the fields in a smartlist */
   smartlist_t *fields = smartlist_new();
@@ -7404,6 +7414,175 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   smartlist_free(fields);
 }
 
+/* If conn is an exit conn, add byte_count bytes to its legacy privcount byte
+ * counters.
+ * If conn has a corresponding or_circuit, add bytes to its legacy counters.
+ * Then send the corresponding stream event.
+ * This function is called when bytes are successfully sent on a connection,
+ * excluding TLS negotiation bytes.
+ *
+ * Tor can only map connections to circuits 1:1 when the connection is an edge
+ * connection. That is, it is the exit (including begindir) for the circuit.
+ * Other transfers can be counted at the cell level, or at the onnection level.
+ */
+void
+privcount_byte_transfer(connection_t *conn,
+                        uint64_t byte_count,
+                        int is_outbound,
+                        int is_legacy_count)
+{
+  if (!conn || byte_count <= 0) {
+    return;
+  }
+
+  if (conn->type == CONN_TYPE_EXIT) {
+    edge_connection_t *exitconn = privcount_to_edge_conn(conn);
+    or_circuit_t* orcirc = privcount_get_exit_or_circ(exitconn, NULL);
+    /* Is this an external connection, or an internal linked connection? */
+    const int is_external = privcount_data_is_used_for_byte_counters(exitconn,
+                                                                     orcirc);
+
+    /* Handle the legacy cases first */
+    if (is_legacy_count && is_external) {
+      if (is_outbound) {
+        exitconn->privcount_n_exit_bytes_outbound = privcount_add_saturating(
+                                    exitconn->privcount_n_exit_bytes_outbound,
+                                    byte_count);
+        orcirc->privcount_n_exit_bytes_outbound = privcount_add_saturating(
+                                    orcirc->privcount_n_exit_bytes_outbound,
+                                    byte_count);
+      } else {
+        exitconn->privcount_n_exit_bytes_inbound = privcount_add_saturating(
+                                    exitconn->privcount_n_exit_bytes_inbound,
+                                    byte_count);
+        orcirc->privcount_n_exit_bytes_inbound = privcount_add_saturating(
+                                    orcirc->privcount_n_exit_bytes_inbound,
+                                    byte_count);
+      }
+    }
+
+    if (is_legacy_count &&
+        privcount_data_is_used_for_stream_events(exitconn, orcirc)) {
+      control_event_privcount_stream_bytes_transferred(exitconn, orcirc,
+                                                       byte_count,
+                                                       is_outbound);
+    }
+  }
+
+  /* Also count directory bytes on BEGINDIR circuits */
+  if (conn->linked) {
+
+    /* Linked connections never write to sockets: they transfer
+     * (read and write) bytes when other connections read (inbound) */
+    if (BUG(is_outbound)) {
+      return;
+    }
+
+    /* Outbound BEGINDIR bytes are read fron exit connections and written
+     * to the linked directory connection. Inbound BEGINDIR bytes are read
+     * from directory connections, and written to the linked exit connection.
+     */
+    is_outbound = (conn->type == CONN_TYPE_EXIT);
+
+    /* If this isn't the exit connection, use the linked exit connection */
+    connection_t *econn = ((conn->type == CONN_TYPE_EXIT) ?
+                           conn : conn->linked_conn);
+
+    /* If the linked connection has closed, we can't add to its counters.
+     * If it's not an exit connection, something is buggy. */
+    if (econn && !BUG(econn->type != CONN_TYPE_EXIT)) {
+
+      edge_connection_t *exitconn = privcount_to_edge_conn(econn);
+      or_circuit_t* orcirc = privcount_get_exit_or_circ(exitconn, NULL);
+
+      if (is_outbound) {
+        exitconn->privcount_n_dir_bytes_outbound = privcount_add_saturating(
+                                    exitconn->privcount_n_dir_bytes_outbound,
+                                    byte_count);
+        orcirc->privcount_n_dir_bytes_outbound = privcount_add_saturating(
+                                    orcirc->privcount_n_dir_bytes_outbound,
+                                    byte_count);
+      } else {
+        exitconn->privcount_n_dir_bytes_inbound = privcount_add_saturating(
+                                    exitconn->privcount_n_dir_bytes_inbound,
+                                    byte_count);
+        orcirc->privcount_n_dir_bytes_inbound = privcount_add_saturating(
+                                    orcirc->privcount_n_dir_bytes_inbound,
+                                    byte_count);
+      }
+    }
+  }
+}
+
+/* If conn is an exit conn, add 1 cell to its legacy privcount cell counters.
+ * If conn has a corresponding or_circuit, add a cell to the circ or orcirc
+ * counters, depending on is_legacy_count.
+ * Unlike control_event_privcount_circuit_close(), legacy events are not
+ * included in tagged events: they are counted at different locations.
+ * Unlike privcount_byte_transfer(), this is called by the cell event,
+ * and also called by channel_flush_from_first_active_circuit() for legacy
+ * cell counts.
+ */
+void
+privcount_cell_transfer(circuit_t *circ,
+                        const channel_t *chan,
+                        int is_sent,
+                        int is_legacy_count)
+{
+  if (!chan || !circ) {
+    return;
+  }
+
+  or_circuit_t *orcirc = privcount_to_or_circ(circ);
+
+  if (orcirc && BUG(orcirc->p_chan == circ->n_chan)) {
+    return;
+  }
+
+  if (is_legacy_count && is_sent && orcirc &&
+      privcount_data_is_used_for_cell_counters(circ)) {
+    /* Inbound */
+    if (chan == orcirc->p_chan) {
+      orcirc->privcount_n_exit_cells_inbound = privcount_add_saturating(
+                                      orcirc->privcount_n_exit_cells_inbound,
+                                      1);
+    }
+    /* Outbound */
+    if (chan == circ->n_chan) {
+      orcirc->privcount_n_exit_cells_outbound = privcount_add_saturating(
+                                      orcirc->privcount_n_exit_cells_outbound,
+                                      1);
+    }
+  }
+
+  if (!is_legacy_count) {
+    /* Inbound */
+    if (orcirc && chan == orcirc->p_chan) {
+      if (is_sent) {
+        circ->privcount_n_cells_sent_inbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_sent_inbound,
+                                    1);
+      } else {
+        circ->privcount_n_cells_received_inbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_received_inbound,
+                                    1);
+      }
+    }
+    /* Outbound */
+    if (chan == circ->n_chan) {
+      if (is_sent) {
+        circ->privcount_n_cells_sent_outbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_sent_outbound,
+                                    1);
+      } else {
+        circ->privcount_n_cells_received_outbound = privcount_add_saturating(
+                                    circ->privcount_n_cells_received_outbound,
+                                    1);
+      }
+    }
+  }
+}
+
 /* Add the tagged fields for node to fields, prefixing the keys with prefix */
 static void
 privcount_add_node_fields(smartlist_t *fields,
@@ -7451,7 +7630,8 @@ privcount_add_node_fields(smartlist_t *fields,
  * circuit only emits one event.
  * orcirc must not be NULL.
  * Calls control_event_privcount_circuit_ended() to send the equivalent legacy
- * event for OR circuits if is_legacy_circuit_end is true. */
+ * event for OR circuits if is_legacy_circuit_end is true. Legacy events are
+ * a subset of all circuit events. */
 void
 control_event_privcount_circuit_close(circuit_t *circ,
                                       int is_legacy_circuit_end)
@@ -7605,18 +7785,49 @@ control_event_privcount_circuit_close(circuit_t *circ,
                                     "RendSplice");
   }
 
-  if (orcirc) {
+  if (circ) {
+    /* Sent to client */
+    smartlist_add_asprintf(fields, "InboundSentCellCount=%" PRIu64,
+                           circ->privcount_n_cells_sent_inbound);
+
+    /* Received from next hop */
+    smartlist_add_asprintf(fields, "InboundReceivedCellCount=%" PRIu64,
+                           circ->privcount_n_cells_received_inbound);
+
+    /* Sent to next hop */
+    smartlist_add_asprintf(fields, "OutboundSentCellCount=%" PRIu64,
+                           circ->privcount_n_cells_sent_outbound);
+
+    /* Received from client */
+    smartlist_add_asprintf(fields, "OutboundReceivedCellCount=%" PRIu64,
+                           circ->privcount_n_cells_received_outbound);
+  }
+
+  if (orcirc && is_legacy_circuit_end) {
+    /* Prefer InboundSentCellCount, it will have a similar value.
+     * Sent to client */
     smartlist_add_asprintf(fields, "InboundExitCellCount=%" PRIu64,
                            privcount_or_circuit_n_exit_cells_inbound(orcirc));
 
+    /* Received from client */
     smartlist_add_asprintf(fields, "OutboundExitCellCount=%" PRIu64,
                            privcount_or_circuit_n_exit_cells_outbound(orcirc));
 
+    /* Received  from internet server */
     smartlist_add_asprintf(fields, "InboundExitByteCount=%" PRIu64,
                            privcount_or_circuit_n_exit_bytes_inbound(orcirc));
 
+    /* Sent to internet server */
     smartlist_add_asprintf(fields, "OutboundExitByteCount=%" PRIu64,
                            privcount_or_circuit_n_exit_bytes_outbound(orcirc));
+
+    /* Sent to client */
+    smartlist_add_asprintf(fields, "InboundDirByteCount=%" PRIu64,
+                           orcirc->privcount_n_dir_bytes_inbound);
+
+    /* Received from client */
+    smartlist_add_asprintf(fields, "OutboundDirByteCount=%" PRIu64,
+                           orcirc->privcount_n_dir_bytes_outbound);
   }
 
   /* Now create the final string */
