@@ -3411,6 +3411,31 @@ typedef struct or_circuit_t {
    *  statistics. */
   unsigned int circuit_carries_hs_traffic_stats : 1;
 
+  /* We tag these even if PrivCount is not enabled, because otherwise we'd
+   * have to track whether PrivCount was enabled on the rend splice and
+   * intro tap before providing their information. */
+
+  /** We can't find HSDir circuits unless we tag them ourselves. */
+  unsigned int privcount_circuit_client_hsdir : 1;
+  unsigned int privcount_circuit_service_hsdir : 1;
+
+  /** We can't find client intro circuits unless we tag them
+   * ourselves. Service intro circuits have their own purpose. */
+  unsigned int privcount_circuit_client_intro : 1;
+
+  /** We can't distinguish client and service rend circuits unless we tag them
+   * ourselves. (Client rend circuits only have a specific purpose while
+   * waiting.) */
+  unsigned int privcount_circuit_client_rend : 1;
+  unsigned int privcount_circuit_service_rend : 1;
+
+  /** The service introduction circuit that accepted the last client
+   * INTRODUCE cell from this circuit. Cleared when this circuit is marked for
+   * close. Use the accessor function to access this: it checks that the
+   * intro sink still exists before returning it. */
+  uint64_t privcount_intro_sink_p_chan_global_identifier;
+  circid_t privcount_intro_sink_p_circ_id;
+
   /** Number of cells that were removed from circuit queue; reset every
    * time when writing buffer stats to disk. */
   uint32_t processed_cells;
@@ -3437,7 +3462,6 @@ typedef struct or_circuit_t {
   /* Counts directory bytes */
   uint64_t privcount_n_dir_bytes_inbound;
   uint64_t privcount_n_dir_bytes_outbound;
-
 } or_circuit_t;
 
 #if REND_COOKIE_LEN != DIGEST_LEN

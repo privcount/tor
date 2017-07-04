@@ -18,6 +18,8 @@
 #include "hs_circuitmap.h"
 #include "hs_intropoint.h"
 
+#include "control.h"
+
 /** Respond to an ESTABLISH_INTRO cell by checking the signed data and
  * setting the circuit's purpose and service pk digest.
  */
@@ -174,6 +176,8 @@ rend_mid_introduce_legacy(or_circuit_t *circ, const uint8_t *request,
     goto err;
   }
 
+  privcount_set_intro_client_sink(circ, intro_circ);
+
   log_info(LD_REND,
            "Sending introduction request for service %s "
            "from circ %u to circ %u",
@@ -257,6 +261,8 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     return -1;
   }
 
+  circ->privcount_circuit_client_rend = 1;
+
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_POINT_WAITING);
   hs_circuitmap_register_rend_circ(circ, request);
 
@@ -338,6 +344,9 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
   log_info(LD_REND,
            "Completing rendezvous: circuit %u joins circuit %u (cookie %s)",
            (unsigned)circ->p_circ_id, (unsigned)rend_circ->p_circ_id, hexid);
+
+  /* We marked the client side circuit when it opened */
+  circ->privcount_circuit_service_rend = 1;
 
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_ESTABLISHED);
   circuit_change_purpose(TO_CIRCUIT(rend_circ),

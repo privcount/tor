@@ -861,6 +861,8 @@ or_circuit_new(circid_t p_circ_id, channel_t *p_chan)
   circ->remaining_relay_early_cells = MAX_RELAY_EARLY_CELLS_PER_CIRCUIT;
   cell_queue_init(&circ->p_chan_cells);
 
+  privcount_clear_intro_client_sink(circ);
+
   init_circuit_base(TO_CIRCUIT(circ));
 
   return circ;
@@ -1805,6 +1807,11 @@ circuit_mark_for_close_, (circuit_t *circ, int reason, int line,
   circ->marked_for_close_reason = reason;
   circ->marked_for_close_orig_reason = orig_reason;
 
+  if (get_options()->EnablePrivCount) {
+    /* Make sure we do this after we close, but before we clear rend_splice */
+    control_event_privcount_circuit_close(circ, 0);
+  }
+
   if (!CIRCUIT_IS_ORIGIN(circ)) {
     or_circuit_t *or_circ = TO_OR_CIRCUIT(circ);
     if (or_circ->rend_splice) {
@@ -1814,6 +1821,7 @@ circuit_mark_for_close_, (circuit_t *circ, int reason, int line,
       }
       or_circ->rend_splice = NULL;
     }
+    privcount_clear_intro_client_sink(or_circ);
   }
 
   if (circuits_pending_close == NULL)

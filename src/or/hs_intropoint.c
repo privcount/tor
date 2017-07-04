@@ -27,6 +27,8 @@
 #include "hs_intropoint.h"
 #include "hs_common.h"
 
+#include "control.h"
+
 /** Extract the authentication key from an ESTABLISH_INTRO or INTRODUCE1 using
  * the given <b>cell_type</b> from <b>cell</b> and place it in
  * <b>auth_key_out</b>. */
@@ -475,6 +477,8 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
     }
   }
 
+  privcount_set_intro_client_sink(client_circ, service_circ);
+
   /* Relay the cell to the service on its intro circuit with an INTRODUCE2
    * cell which is the same exact payload. */
   if (relay_send_command_from_edge(CONTROL_CELL_ID, TO_CIRCUIT(service_circ),
@@ -560,6 +564,8 @@ hs_intro_received_introduce1(or_circuit_t *circ, const uint8_t *request,
 
   tor_assert(circ);
   tor_assert(request);
+
+  circ->privcount_circuit_client_intro = 1;
 
   /* A cell that can't hold a DIGEST_LEN is invalid as we need to check if
    * it's a legacy cell or not using the first DIGEST_LEN bytes. */
