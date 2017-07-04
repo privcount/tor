@@ -221,12 +221,58 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
   tor_assert(circ);
   tor_assert(cell_direction == CELL_DIRECTION_OUT ||
              cell_direction == CELL_DIRECTION_IN);
-  if (circ->marked_for_close)
+  if (circ->marked_for_close) {
+
+    /* Received cells on circuits that are marked for close are read from the
+     * queue, and then dropped.
+     * Most counters will just ignore this, but do it anyway for consistency */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
+    }
+
     return 0;
+  }
 
   if (relay_crypt(circ, cell, cell_direction, &layer_hint, &recognized) < 0) {
     log_warn(LD_BUG,"relay crypt failed. Dropping connection.");
+
+    /* This cell is never actually processed. Counters can ignore it using
+     * was_relay_crypt_successful. */
+    if (get_options()->EnablePrivCount) {
+      const int was_relay_crypt_successful = 0;
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &was_relay_crypt_successful);
+    }
+
     return -END_CIRC_REASON_INTERNAL;
+  }
+
+  const int was_relay_crypt_successful = 1;
+  /* Use the channel that the cell came from */
+  if (get_options()->EnablePrivCount) {
+    if (cell_direction == CELL_DIRECTION_OUT) {
+      control_event_privcount_circuit_cell(TO_OR_CIRCUIT(circ)->p_chan, circ,
+                                           cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &was_relay_crypt_successful);
+    } else if (!CIRCUIT_IS_ORIGIN(circ)) {
+      control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &was_relay_crypt_successful);
+    } else {
+      /* Send events for origin circuits, counters can filter them out using
+       * the corresponding field. */
+      control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           &recognized,
+                                           &was_relay_crypt_successful);
+    }
   }
 
   if (recognized) {
@@ -549,7 +595,7 @@ relay_header_unpack(relay_header_t *dest, const uint8_t *src)
 }
 
 /** Convert the relay <b>command</b> into a human-readable string. */
-static const char *
+const char *
 relay_command_to_string(uint8_t command)
 {
   static char buf[64];
@@ -2666,22 +2712,7 @@ channel_flush_from_first_active_circuit, (channel_t *chan, int max))
      */
     cell = cell_queue_pop(queue);
 
-    if (privcount_data_is_used_for_cell_counters(circ)) {
-      /* We can't use or_circ as-is, because it's only set when
-       * chan == or_circ->p_chan
-       * But it's safe to overwrite it here, because the cell statistics code
-       * sets it before using it, too. */
-      or_circ = TO_OR_CIRCUIT(circ);
-      if (chan == or_circ->p_chan) {
-        or_circ->privcount_n_cells_in = privcount_add_saturating(
-                                                or_circ->privcount_n_cells_in,
-                                                1);
-      } else if (chan == circ->n_chan) {
-        or_circ->privcount_n_cells_out = privcount_add_saturating(
-                                                or_circ->privcount_n_cells_out,
-                                                1);
-      }
-    }
+    privcount_cell_transfer(circ, chan, 1, 1);
 
     /* Calculate the exact time that this cell has spent in the queue. */
     if (get_options()->CellStatistics ||
@@ -2784,8 +2815,26 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
 #endif
 
   int exitward;
-  if (circ->marked_for_close)
+
+  if (circ->marked_for_close) {
+
+    /* Attempts to send a cell on a circuit that is marked for close are
+     * ignored.
+     * Most counters will just ignore this, but do it anyway for consistency */
+    if (get_options()->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, circ, cell,
+                                           PRIVCOUNT_CELL_SENT,
+                                           NULL, NULL);
+    }
+
     return;
+  }
+
+  if (get_options()->EnablePrivCount) {
+    control_event_privcount_circuit_cell(chan, circ, cell,
+                                         PRIVCOUNT_CELL_SENT,
+                                         NULL, NULL);
+  }
 
   exitward = (direction == CELL_DIRECTION_OUT);
   if (exitward) {

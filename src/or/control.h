@@ -148,28 +148,18 @@ void control_event_hs_descriptor_content(const char *onion_address,
                                          const char *hsdir_fp,
                                          const char *content);
 
-or_circuit_t* privcount_get_or_circuit(edge_connection_t* exitconn,
-                                       or_circuit_t *orcirc);
-
-int privcount_data_is_used_for_stream_events(const edge_connection_t* exitconn,
-                                             const or_circuit_t *orcirc);
-int privcount_data_is_used_for_byte_counters(const edge_connection_t* exitconn,
-                                             const or_circuit_t *orcirc);
-
-int privcount_data_is_used_for_circuit_events(const circuit_t *circ);
-int privcount_data_is_used_for_cell_counters(const circuit_t *circ);
-
-int privcount_data_is_used_for_connection_events(const connection_t *conn);
-
-int privcount_data_is_used_for_dns_events(const edge_connection_t* exitconn,
-                                          const or_circuit_t *orcirc);
-
-uint64_t privcount_add_saturating(uint64_t a, uint64_t b);
-int64_t privcount_check_range_i64(uint64_t input);
-
 char *privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv);
 
 const char *privcount_get_version_str(void);
+
+void privcount_byte_transfer(connection_t *conn,
+                             uint64_t byte_count,
+                             int is_outbound,
+                             int is_legacy_count);
+void privcount_cell_transfer(circuit_t *circ,
+                             const channel_t *chan,
+                             int is_sent,
+                             int is_legacy_count);
 
 /* Positional events */
 void control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
@@ -179,22 +169,32 @@ void control_event_privcount_stream_bytes_transferred(
                                             const or_circuit_t *orcirc,
                                             uint64_t amt, int is_outbound);
 void control_event_privcount_stream_ended(const edge_connection_t *exitconn);
-void control_event_privcount_circuit_ended(or_circuit_t *orcirc);
 void control_event_privcount_connection_ended(const or_connection_t *orconn);
 /* Tagged events */
 /* Forward declaration to avoid including hs_cache.h */
 typedef struct hs_cache_dir_descriptor_t hs_cache_dir_descriptor_t;
 void control_event_privcount_hsdir_cache_store(
-                                      int hs_version_number,
-                                      int has_existing_cache_entry_flag,
-                                      int was_added_to_cache_flag,
-                                      const char *cache_reason_string,
-                                      const char *desc_id_base32,
-                                      rend_service_descriptor_t *hsv2_desc,
-                                      const char *hsv2_desc_body,
-                                      hs_cache_dir_descriptor_t *hsv3_desc,
-                                      ssize_t encoded_descriptor_byte_count,
-                                      ssize_t encoded_intro_point_byte_count);
+                                    int hs_version_number,
+                                    int has_existing_cache_entry_flag,
+                                    int was_added_to_cache_flag,
+                                    const char *cache_reason_string,
+                                    const char *desc_id_base32,
+                                    const rend_service_descriptor_t *hsv2_desc,
+                                    const char *hsv2_desc_body,
+                                    const hs_cache_dir_descriptor_t *hsv3_desc,
+                                    ssize_t encoded_descriptor_byte_count,
+                                    ssize_t encoded_intro_point_byte_count);
+void control_event_privcount_circuit_close(circuit_t *circ,
+                                           int is_legacy_circuit_end);
+void control_event_privcount_circuit_cell(
+                                        const channel_t *chan,
+                                        circuit_t *circ,
+                                        const cell_t *cell,
+                                        int is_sent,
+                                        const char *is_recognized,
+                                        const int *was_relay_crypt_successful);
+#define PRIVCOUNT_CELL_RECEIVED 0
+#define PRIVCOUNT_CELL_SENT 1
 
 void control_free_all(void);
 
@@ -243,16 +243,33 @@ void control_free_all(void);
 /* These events are in positional format */
 /* These events are exit events */
 #define EVENT_PRIVCOUNT_DNS_RESOLVED                0x0024
-/* These events are entry, middle, exit, intro, and rend events */
+/* These events are position-independent events,
+ * but they ignore BEGINDIR, and only report exit cell and byte counts */
 #define EVENT_PRIVCOUNT_STREAM_BYTES_TRANSFERRED    0x0025
 #define EVENT_PRIVCOUNT_STREAM_ENDED                0x0026
 #define EVENT_PRIVCOUNT_CIRCUIT_ENDED               0x0027
 #define EVENT_PRIVCOUNT_CONNECTION_ENDED            0x0028
 /* These events are in tagged format */
 /* These events are HSDir events */
-#define EVENT_PRIVCOUNT_HSDIR_CACHE_STORE          0x0029
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_STORE           0x0029
+/*
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH           0x002A
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_EVICT           0x002B
+ */
+/* These events are position-independent events.
+ * There is no filtering on the Tor side.
+ * They include multiple byte and cell counters. */
+/*
+#define EVENT_PRIVCOUNT_STREAM_BYTE                 0x0030
+#define EVENT_PRIVCOUNT_STREAM_CLOSE                0x0031
+*/
+#define EVENT_PRIVCOUNT_CIRCUIT_CELL                0x0032
+#define EVENT_PRIVCOUNT_CIRCUIT_CLOSE               0x0033
+/*
+#define EVENT_PRIVCOUNT_CONNECTION_CLOSE            0x0034
+*/
 
-#define EVENT_MAX_                                  0x0029
+#define EVENT_MAX_                                  0x0033
 
 /* sizeof(control_connection_t.event_mask) in bits, currently a uint64_t */
 #define EVENT_CAPACITY_               0x0040
