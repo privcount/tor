@@ -7436,7 +7436,8 @@ privcount_add_circuit_id_fields(smartlist_t *fields,
   const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
   if (orcirc) {
-    smartlist_add_asprintf(fields, "PreviousChannelId=%" PRIu64,
+    smartlist_add_asprintf(fields, "%sPreviousChannelId=%" PRIu64,
+                        prefix,
                         privcount_or_circuit_p_chan_global_identifier(orcirc));
 
     smartlist_add_asprintf(fields, "%sPreviousCircuitId=%" PRIu32,
@@ -7444,7 +7445,8 @@ privcount_add_circuit_id_fields(smartlist_t *fields,
   }
 
   if (circ) {
-    smartlist_add_asprintf(fields, "NextChannelId=%" PRIu64,
+    smartlist_add_asprintf(fields, "%sNextChannelId=%" PRIu64,
+                           prefix,
                            privcount_circuit_n_chan_global_identifier(circ));
 
     smartlist_add_asprintf(fields, "%sNextCircuitId=%" PRIu32,
