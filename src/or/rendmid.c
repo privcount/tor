@@ -19,6 +19,7 @@
 #include "hs_intropoint.h"
 
 #include "control.h"
+#include "hs_common.h"
 
 /** Respond to an ESTABLISH_INTRO cell by checking the signed data and
  * setting the circuit's purpose and service pk digest.
@@ -110,6 +111,8 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
     log_info(LD_GENERAL, "Couldn't send INTRO_ESTABLISHED cell.");
     goto err_no_close;
   }
+
+  circ->privcount_hs_version_number = HS_VERSION_TWO;
 
   /* Now, set up this circuit. */
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_INTRO_POINT);
@@ -261,6 +264,7 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     return -1;
   }
 
+  /* We don't know the hidden service version on rend points */
   circ->privcount_circuit_client_rend = 1;
 
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_POINT_WAITING);
@@ -345,7 +349,11 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
            "Completing rendezvous: circuit %u joins circuit %u (cookie %s)",
            (unsigned)circ->p_circ_id, (unsigned)rend_circ->p_circ_id, hexid);
 
-  /* We marked the client side circuit when it opened */
+  /* We marked the client side circuit when it opened.
+   * We don't know the hidden service version on rend points, because v3
+   * services obscure the real size of HANDSHAKE_INFO by padding it to 168
+   * bytes, the size of the v2 handshake. We could identify *longer*
+   * handshakes if we wanted to. */
   circ->privcount_circuit_service_rend = 1;
 
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_ESTABLISHED);

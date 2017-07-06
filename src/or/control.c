@@ -6023,12 +6023,18 @@ privcount_circuit_is_dir(const circuit_t *circ)
   return 0;
 }
 
-/* Mark the circuit for conn as a HSDir connection based on is_store. */
+/* Mark the circuit for conn as a HSDir connection based on hs_version_number
+ * and is_store. */
 void
 privcount_mark_circuit_hsdir_conn(const dir_connection_t *dirconn,
+                                  int hs_version_number,
                                   int is_store)
 {
   const connection_t *dirbase = PRIVCOUNT_TO_CONN(dirconn);
+
+  /* We don't know how to handle other HS versions */
+  tor_assert(hs_version_number == HS_VERSION_TWO ||
+             hs_version_number == HS_VERSION_THREE);
 
   /* We can't mark a circuit if we can't get to it */
   if (!dirbase || !dirbase->linked || !dirbase->linked_conn) {
@@ -6052,6 +6058,8 @@ privcount_mark_circuit_hsdir_conn(const dir_connection_t *dirconn,
   }
 
   /* And finally... */
+  orcirc->privcount_hs_version_number = hs_version_number;
+
   if (is_store) {
     orcirc->privcount_circuit_service_hsdir = 1;
   } else {
@@ -6184,6 +6192,22 @@ privcount_circuit_is_hs(const or_circuit_t *orcirc)
 }
 
 #endif
+
+/* If orcirc is hidden service directory or intro circuit that ends at this
+ * relay, return the hidden service version number for this circuit.
+ * (Due to padding and cell encryption, it's not possible to tell the
+ * hidden service version number on rendezvous circuits.)
+ * Returns 0 for NULL circuits, rend circuits, and all other circuits. */
+static int
+privcount_circuit_hs_version_number(const or_circuit_t *orcirc)
+{
+  if (privcount_circuit_is_hsdir(orcirc) ||
+      privcount_circuit_is_intro(orcirc)) {
+    return orcirc->privcount_hs_version_number;
+  } else {
+    return 0;
+  }
+}
 
 /* Set the client sink fields in client_orcirc from service_orcirc */
 void
@@ -7463,9 +7487,10 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   const int is_exit = (privcount_data_is_exit(NULL, orcirc) &&
                        !is_dir && !is_hsdir);
 
-  /* Hidden Service client/service flags */
+  /* Extra Hidden Service flags */
   const int is_hs = is_hsdir || is_intro || is_rend;
   const int is_client_hs = privcount_circuit_is_client_hs(orcirc);
+  const int hs_version_number = privcount_circuit_hs_version_number(orcirc);
 
   const int is_single_hop = is_entry && is_end;
   if (is_single_hop) {
@@ -7568,6 +7593,13 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
      * CircuitIsHSClientSideFlag=0, it's a service-side circuit */
     smartlist_add_asprintf(fields, "%sIsHSClientSideFlag=%d",
                            prefix, is_client_hs);
+  }
+
+  if (hs_version_number) {
+    /* If the circuit is HSDir or Intro, then
+     * we know the hidden service version */
+    smartlist_add_asprintf(fields, "%sHiddenServiceVersionNumber=%d",
+                           prefix, hs_version_number);
   }
 
   /* This flag is sometimes set to the line number, but all we want is
@@ -8304,7 +8336,8 @@ control_event_privcount_hsdir_cache_store(
   }
 
   /* We don't know how to handle other HS versions */
-  tor_assert(hs_version_number == 2 || hs_version_number == 3);
+  tor_assert(hs_version_number == HS_VERSION_TWO ||
+             hs_version_number == HS_VERSION_THREE);
 
   /* We have no way to find a circuit id for this upload, or filter out
    * uploads that started before this collection round, but that's ok, because

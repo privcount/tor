@@ -3415,6 +3415,10 @@ typedef struct or_circuit_t {
    * have to track whether PrivCount was enabled on the rend splice and
    * intro tap before providing their information. */
 
+  /* We don't know the hidden service version unless we tag it ourselves.
+   * 0 means "unknown", valid versions are 2 and 3. */
+  unsigned int privcount_hs_version_number : 2;
+
   /** We can't find HSDir circuits unless we tag them ourselves. */
   unsigned int privcount_circuit_client_hsdir : 1;
   unsigned int privcount_circuit_service_hsdir : 1;

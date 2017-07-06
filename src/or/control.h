@@ -152,7 +152,7 @@ const char *privcount_get_version_str(void);
 char *privcount_timeval_to_iso_epoch_str_dup(const struct timeval *tv);
 
 void privcount_mark_circuit_hsdir_conn(const dir_connection_t *dirconn,
-                                       int is_store);
+                                       int hs_version_number, int is_store);
 
 void privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
                                      const or_circuit_t *service_orcirc);

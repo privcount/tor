@@ -3488,7 +3488,7 @@ handle_get_hs_descriptor_v2(dir_connection_t *conn,
 {
   const char *url = args->url;
   if (connection_dir_is_encrypted(conn)) {
-    privcount_mark_circuit_hsdir_conn(conn, 0);
+    privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_TWO, 0);
 
     /* Handle v2 rendezvous descriptor fetch request. */
     const char *descp;
@@ -3537,7 +3537,7 @@ handle_get_hs_descriptor_v3(dir_connection_t *conn,
     goto done;
   }
 
-  privcount_mark_circuit_hsdir_conn(conn, 0);
+  privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_THREE, 0);
 
   /* After the path prefix follows the base64 encoded blinded pubkey which we
    * use to get the descriptor from the cache. Skip the prefix and get the
@@ -3731,7 +3731,7 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
   if (connection_dir_is_encrypted(conn) &&
       !strcmpstart(url,"/tor/rendezvous2/publish")) {
 
-    privcount_mark_circuit_hsdir_conn(conn, 1);
+    privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_TWO, 1);
 
     if (rend_cache_store_v2_desc_as_dir(body) < 0) {
       log_warn(LD_REND, "Rejected v2 rend descriptor (length %d) from %s.",
@@ -3751,7 +3751,8 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
   if (connection_dir_is_encrypted(conn) && !strcmpstart(url, "/tor/hs/")) {
     const char *msg = "HS descriptor stored successfully.";
 
-    privcount_mark_circuit_hsdir_conn(conn, 1);
+    /* Assume that the version will always be 3 */
+    privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_THREE, 1);
 
     /* We most probably have a publish request for an HS descriptor. */
     int code = handle_post_hs_descriptor(url, body);
