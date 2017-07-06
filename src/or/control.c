@@ -7455,7 +7455,8 @@ privcount_add_circuit_id_fields(smartlist_t *fields,
 }
 
 /* Add the common cell and circuit tagged fields in circ to fields,
- * prefixing names with prefix, or the empty string if it is NULL. */
+ * prefixing names with prefix, or the empty string if it is NULL.
+ * Does not include the EventTimestamp field, which is set in each event. */
 static void
 privcount_add_circuit_common_fields(smartlist_t *fields,
                                     const circuit_t *circ,
@@ -7479,6 +7480,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   const int next_is_relay = privcount_is_consensus_relay(circ->n_chan);
   const int is_mid = !is_origin && !is_entry && next_is_relay;
   const int is_end = !is_origin && !next_is_relay;
+  const int is_single_hop = is_entry && is_end;
 
   /* End Type flags */
   const int is_hsdir = privcount_circuit_is_hsdir(orcirc);
@@ -7494,7 +7496,12 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   const int is_client_hs = privcount_circuit_is_client_hs(orcirc);
   const int hs_version_number = privcount_circuit_hs_version_number(orcirc);
 
-  const int is_single_hop = is_entry && is_end;
+  /* Extra Circuit flags */
+
+  /* This flag is sometimes set to the line number, but all we want is
+   * a boolean */
+  const int is_marked_for_close = !! circ->marked_for_close;
+
   if (is_single_hop) {
     /* Single hop circuits can't be origin or middle */
     if (is_origin || is_mid) {
@@ -7604,10 +7611,10 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
                            prefix, hs_version_number);
   }
 
-  /* This flag is sometimes set to the line number, but all we want is
-   * a boolean */
-  smartlist_add_asprintf(fields, "%sMarkedForCloseFlag=%d",
-                         prefix, !! circ->marked_for_close);
+  if (is_marked_for_close) {
+    smartlist_add_asprintf(fields, "%sIsMarkedForCloseFlag=1",
+                           prefix);
+  }
 
   privcount_add_circuit_id_fields(fields, circ, prefix);
 }
@@ -7677,6 +7684,10 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   /* Collect all the fields in a smartlist */
   smartlist_t *fields = smartlist_new();
 
+  /* No relative timestamps: they are much easier to calculate in python */
+  smartlist_add(fields,
+                privcount_timeval_now_to_epoch_str_dup("EventTimestamp="));
+
   /* IsSentFlag >      1                0
    * v IsOutboundFlag
    * 1                 SENT TO_SERVER   RECEIVED FROM_CLIENT
@@ -7701,10 +7712,6 @@ control_event_privcount_circuit_cell(const channel_t *chan,
       smartlist_add_asprintf(fields, "IsOutboundFlag=0");
     }
   }
-
-  /* No relative timestamps: they are much easier to calculate in python */
-  smartlist_add(fields,
-                privcount_timeval_now_to_epoch_str_dup("EventTimestamp="));
 
   /* Leave out cell_num */
 
@@ -8083,7 +8090,7 @@ control_event_privcount_circuit_close(circuit_t *circ,
                          created_str);
 
   /* Use this flag to transition from the legacy circuit event */
-  smartlist_add_asprintf(fields, "IsLegacyCircuitEndEventSentFlag=%d",
+  smartlist_add_asprintf(fields, "IsLegacyCircuitEndEventFlag=%d",
                          is_legacy_circuit_end);
 
   privcount_add_circuit_common_fields(fields, circ, NULL);
@@ -8127,14 +8134,6 @@ control_event_privcount_circuit_close(circuit_t *circ,
                              clean_str);
       tor_free(clean_str);
     }
-  }
-
-  if (orcirc->privcount_circuit_service_hsdir) {
-    smartlist_add_asprintf(fields, "HSDirStoreFlag=1");
-  }
-
-  if (orcirc->privcount_circuit_client_hsdir) {
-    smartlist_add_asprintf(fields, "HSDirFetchFlag=1");
   }
 
   if (orcirc && orcirc->p_chan) {
