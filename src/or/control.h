@@ -259,21 +259,21 @@ void control_free_all(void);
 /* These events are HSDir events */
 #define EVENT_PRIVCOUNT_HSDIR_CACHE_STORE           0x0029
 /*
-#define EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH           0x002A
-#define EVENT_PRIVCOUNT_HSDIR_CACHE_EVICT           0x002B
+ * #define EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH        0x002A
+ * #define EVENT_PRIVCOUNT_HSDIR_CACHE_EVICT        0x002B
  */
 /* These events are position-independent events.
  * There is no filtering on the Tor side.
  * They include multiple byte and cell counters. */
 /*
-#define EVENT_PRIVCOUNT_STREAM_BYTE                 0x0030
-#define EVENT_PRIVCOUNT_STREAM_CLOSE                0x0031
-*/
+ * #define EVENT_PRIVCOUNT_STREAM_BYTE              0x0030
+ * #define EVENT_PRIVCOUNT_STREAM_CLOSE             0x0031
+ */
 #define EVENT_PRIVCOUNT_CIRCUIT_CELL                0x0032
 #define EVENT_PRIVCOUNT_CIRCUIT_CLOSE               0x0033
 /*
-#define EVENT_PRIVCOUNT_CONNECTION_CLOSE            0x0034
-*/
+ * #define EVENT_PRIVCOUNT_CONNECTION_CLOSE         0x0034
+ */
 
 #define EVENT_MAX_                                  0x0033
 
