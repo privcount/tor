@@ -5884,9 +5884,9 @@ privcount_to_const_or_circ(const circuit_t *circ)
 }
 
 /* A safe version of TO_EDGE_CONN() that returns NULL when conn is NULL or
- * conn is not an edge conn */
+ * conn is not an exit conn */
 static edge_connection_t*
-privcount_to_edge_conn(connection_t *conn)
+privcount_to_exit_conn(connection_t *conn)
 {
   if (!conn) {
     return NULL;
@@ -5899,12 +5899,12 @@ privcount_to_edge_conn(connection_t *conn)
   return TO_EDGE_CONN(conn);
 }
 
-/* Like privcount_to_edge_conn, but with casts that tell the
+/* Like privcount_to_exit_conn, but with casts that tell the
  * compiler we're not actually modifying anything */
 static const edge_connection_t*
-privcount_to_const_edge_conn(const connection_t *conn)
+privcount_to_const_exit_conn(const connection_t *conn)
 {
-  return (const edge_connection_t*)privcount_to_edge_conn(
+  return (const edge_connection_t*)privcount_to_exit_conn(
                                                         (connection_t *)conn);
 }
 
@@ -6043,7 +6043,7 @@ privcount_mark_circuit_hsdir_conn(const dir_connection_t *dirconn,
 
   /* Find the linked edge connection */
   const connection_t *edgebase = dirbase->linked_conn;
-  const edge_connection_t *edgeconn = privcount_to_const_edge_conn(edgebase);
+  const edge_connection_t *edgeconn = privcount_to_const_exit_conn(edgebase);
   if (!edgeconn) {
     return;
   }
@@ -7826,7 +7826,7 @@ privcount_byte_transfer(connection_t *conn,
   }
 
   if (conn->type == CONN_TYPE_EXIT) {
-    edge_connection_t *exitconn = privcount_to_edge_conn(conn);
+    edge_connection_t *exitconn = privcount_to_exit_conn(conn);
     or_circuit_t* orcirc = privcount_get_exit_or_circ(exitconn, NULL);
     /* Is this an external connection, or an internal linked connection? */
     const int is_external = privcount_data_is_used_for_byte_counters(exitconn,
@@ -7863,26 +7863,44 @@ privcount_byte_transfer(connection_t *conn,
   if (conn->linked) {
 
     /* Linked connections never write to sockets: they transfer
-     * (read and write) bytes when other connections read (inbound) */
+     * (read and write) bytes when other connections read (inbound).
+     * So we will always see "inbound" reads here. */
     if (BUG(is_outbound)) {
       return;
     }
 
-    /* Outbound BEGINDIR bytes are read fron exit connections and written
-     * to the linked directory connection. Inbound BEGINDIR bytes are read
-     * from directory connections, and written to the linked exit connection.
-     */
-    is_outbound = (conn->type == CONN_TYPE_EXIT);
+    /* If this isn't the edge connection, use the linked edge connection */
+    connection_t *econn =  CONN_IS_EDGE(conn) ? conn : conn->linked_conn;
+    connection_t *dconn = !CONN_IS_EDGE(conn) ? conn : conn->linked_conn;
 
-    /* If this isn't the exit connection, use the linked exit connection */
-    connection_t *econn = ((conn->type == CONN_TYPE_EXIT) ?
-                           conn : conn->linked_conn);
+    /* If it's not a directory connection, something is buggy. */
+    if (dconn && BUG(dconn->type != CONN_TYPE_DIR)) {
+      log_warn(LD_BUG, "Connection: %p Type: %d Purpose: %d State: %d "
+                "Linked Connection: %p Type: %d Purpose: %d State: %d "
+                "Chosen Connection: Edge: %s Dir: %s",
+               conn, conn->type, conn->purpose, conn->state,
+               conn->linked_conn,
+               conn->linked_conn ? conn->linked_conn->type : -1,
+               conn->linked_conn ? conn->linked_conn->purpose : -1,
+               conn->linked_conn ? conn->linked_conn->state : -1,
+               econn == conn ? "Connection" : "Linked Connection",
+               dconn == conn ? "Connection" : "Linked Connection");
+      return;
+    }
 
-    /* If the linked connection has closed, we can't add to its counters.
-     * If it's not an exit connection, something is buggy. */
-    if (econn && !BUG(econn->type != CONN_TYPE_EXIT)) {
+    /* We don't count directory bytes on origin connections */
 
-      edge_connection_t *exitconn = privcount_to_edge_conn(econn);
+    /* If the linked connection has closed, we can't add to its counters. */
+    if (econn && econn->type == CONN_TYPE_EXIT) {
+
+      /* At the origin, outbound BEGINDIR bytes are read from the origin's
+       * directory connection, and written to the linked AP connection.
+       * At the exit, outbound BEGINDIR bytes are read from exit connections,
+       * and written to the linked directory connection.
+       */
+      is_outbound = (econn->type == CONN_TYPE_EXIT);
+
+      edge_connection_t *exitconn = privcount_to_exit_conn(econn);
       or_circuit_t* orcirc = privcount_get_exit_or_circ(exitconn, NULL);
 
       if (is_outbound) {

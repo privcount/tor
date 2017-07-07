@@ -1631,14 +1631,14 @@ typedef struct edge_connection_t {
   uint32_t n_read;
   /* Excludes bytes that privcount considers overhead */
   uint64_t privcount_n_exit_bytes_inbound;
-  /* Counts directory bytes */
+  /* Counts server directory bytes */
   uint64_t privcount_n_dir_bytes_inbound;
 
   /** Bytes written since last call to control_event_stream_bandwidth_used() */
   uint32_t n_written;
   /* Excludes bytes that privcount considers overhead */
   uint64_t privcount_n_exit_bytes_outbound;
-  /* Counts directory bytes */
+  /* Counts server directory bytes */
   uint64_t privcount_n_dir_bytes_outbound;
 
   /** True iff this connection is for a DNS request only. */
@@ -3463,7 +3463,7 @@ typedef struct or_circuit_t {
   uint64_t privcount_n_exit_bytes_inbound;
   uint64_t privcount_n_exit_bytes_outbound;
 
-  /* Counts directory bytes */
+  /* Counts server directory bytes */
   uint64_t privcount_n_dir_bytes_inbound;
   uint64_t privcount_n_dir_bytes_outbound;
 } or_circuit_t;
