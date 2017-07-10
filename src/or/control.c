@@ -6067,24 +6067,10 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
       return 0;
     }
 
-    /* If there are no streams, fall back to checking the consensus */
+    /* If there are no streams, we just can't tell */
     if (!orcirc->n_streams && !orcirc->resolving_streams) {
-
-      if (!TO_CONN(orcirc)->n_chan) {
-        /* Probably an unused or cleaned up exit connection */
-        return 1;
-      }
-
-      if (!privcount_is_client(TO_CONN(orcirc)->n_chan)) {
-        /* Definitely not an exit connection */
-        return 0;
-      }
-
-      /* Something is very wrong here: no relays should connect to clients
-       * on n_chan, so instead we have a TLS connection with an internet
-       * server??? */
-      tor_assert_nonfatal_unreached();
-      return 1;
+      /* Probably not an exit connection */
+      return 0;
     }
 
     /* Walk the stream list to find out if any are exit streams */
