@@ -363,19 +363,32 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
   circ->base_.purpose = CIRCUIT_PURPOSE_OR;
   circuit_set_state(TO_CIRCUIT(circ), CIRCUIT_STATE_ONIONSKIN_PENDING);
 
-  if (options->EnablePrivCount) {
-      control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
-                                           PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
-  }
-
   create_cell = tor_malloc_zero(sizeof(create_cell_t));
   if (create_cell_parse(create_cell, cell) < 0) {
     tor_free(create_cell);
     log_fn(LOG_PROTOCOL_WARN, LD_OR,
            "Bogus/unrecognized create cell; closing.");
     circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_TORPROTOCOL);
+
+    if (options->EnablePrivCount) {
+      control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
+                                           PRIVCOUNT_CELL_RECEIVED,
+                                           NULL, NULL);
+    }
+
     return;
+  }
+
+  /* PrivCount uses this flag to distinguish v2 and v3 rend circuits */
+  if (create_cell->handshake_type == ONION_HANDSHAKE_TYPE_FAST ||
+      create_cell->handshake_type == ONION_HANDSHAKE_TYPE_TAP) {
+    circ->used_legacy_circuit_handshake = 1;
+  }
+
+  if (options->EnablePrivCount) {
+    control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         NULL, NULL);
   }
 
   if (create_cell->handshake_type != ONION_HANDSHAKE_TYPE_FAST) {

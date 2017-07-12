@@ -6164,9 +6164,6 @@ privcount_circuit_is_client_hs(const or_circuit_t *orcirc)
           privcount_circuit_is_client_rend(orcirc));
 }
 
-/* Silence compiler unused function warnings */
-#if 0
-
 /* Is orcirc a service-side hidden service circuit that ends at this relay?
  * NULL circuits are not classified as hidden service circuits. */
 static int
@@ -6177,11 +6174,6 @@ privcount_circuit_is_service_hs(const or_circuit_t *orcirc)
           privcount_circuit_is_service_rend(orcirc));
 }
 
-#endif
-
-/* Silence compiler unused function warnings */
-#if 0
-
 /* Is orcirc a hidden service circuit that ends at this relay?
  * NULL circuits are not classified as hidden service circuits. */
 static int
@@ -6191,18 +6183,12 @@ privcount_circuit_is_hs(const or_circuit_t *orcirc)
           privcount_circuit_is_service_hs(orcirc));
 }
 
-#endif
-
-/* If orcirc is hidden service directory or intro circuit that ends at this
- * relay, return the hidden service version number for this circuit.
- * (Due to padding and cell encryption, it's not possible to tell the
- * hidden service version number on rendezvous circuits.)
- * Returns 0 for NULL circuits, rend circuits, and all other circuits. */
+/* If orcirc is a hsdir, intro, or rend circuit that ends at this
+ * relay, return the hidden service version number for this circuit. */
 static int
 privcount_circuit_hs_version_number(const or_circuit_t *orcirc)
 {
-  if (privcount_circuit_is_hsdir(orcirc) ||
-      privcount_circuit_is_intro(orcirc)) {
+  if (privcount_circuit_is_hs(orcirc)) {
     return orcirc->privcount_hs_version_number;
   } else {
     return 0;
@@ -7600,7 +7586,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   }
 
   if (hs_version_number) {
-    /* If the circuit is HSDir or Intro, then
+    /* If the circuit is HSDir, Intro, or Rend, then
      * we know the hidden service version */
     smartlist_add_asprintf(fields, "%sHiddenServiceVersionNumber=%d",
                            prefix, hs_version_number);

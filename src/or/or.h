@@ -3418,6 +3418,10 @@ typedef struct or_circuit_t {
    * have to track whether PrivCount was enabled on the rend splice and
    * intro tap before providing their information. */
 
+  /** True iff this circuit was made with a CREATE_FAST cell, or a CREATE[2]
+   * cell with a TAP handshake. We use this to tell Rend v2 from Rend v3. */
+  unsigned int used_legacy_circuit_handshake : 1;
+
   /* We don't know the hidden service version unless we tag it ourselves.
    * 0 means "unknown", valid versions are 2 and 3. */
   unsigned int privcount_hs_version_number : 2;
