@@ -7701,6 +7701,9 @@ control_event_privcount_circuit_cell(const channel_t *chan,
    * efficiency */
   privcount_add_circuit_common_fields(fields, circ, NULL);
 
+  smartlist_add_asprintf(fields, "CellCircuitId=%" PRIu32,
+                         cell->circ_id);
+
   const char *cell_command_string = cell_command_to_string(cell->command);
   if (cell_command_string) {
     char *clean_str = privcount_cleanse_tagged_str_dup(cell_command_string);
@@ -7726,12 +7729,19 @@ control_event_privcount_circuit_cell(const channel_t *chan,
     /* If we had access to the path, we could check integrity here and really
      * be sure that the header is valid */
     if (rh.recognized == 0 && rh.length <= RELAY_PAYLOAD_SIZE) {
+
+      smartlist_add_asprintf(fields, "RelayCellPayloadByteCount=%" PRIu16,
+                             rh.length);
+
+      smartlist_add_asprintf(fields, "RelayCellStreamId=%" PRIu16,
+                             rh.stream_id);
+
       const char *relay_command_string = relay_command_to_string(rh.command);
       if (relay_command_string &&
           strcmpstart(relay_command_string, "Unrecognized")) {
         char *clean_str = privcount_cleanse_tagged_str_dup(
                                                         relay_command_string);
-        smartlist_add_asprintf(fields, "RelayCommandString=%s",
+        smartlist_add_asprintf(fields, "RelayCellCommandString=%s",
                                clean_str);
         tor_free(clean_str);
       } else {
