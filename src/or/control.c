@@ -7709,28 +7709,18 @@ control_event_privcount_circuit_cell(const channel_t *chan,
     tor_free(clean_str);
   }
 
-  /* Extracting the relay command is unreliable.
-   * But let's try anyway. */
   int try_relay_command = 0;
   if (is_sent == PRIVCOUNT_CELL_SENT) {
-    /* Tor doesn't set the relay commands until after the layer where we
-     * intercept cell events */
-    try_relay_command = 0;
-  } else {
-    if (is_recognized != NULL && *is_recognized == 0) {
-      /* This cell is not for us, so there is no relay command */
-      try_relay_command = 0;
-    } else if (was_relay_crypt_successful != NULL &&
-               *was_relay_crypt_successful == 0) {
-      /* This cell did not decrypt, so any command would be garbage */
-      try_relay_command = 0;
-    } else {
-      /* We should be able to read cells we can decrypt */
-      try_relay_command = 1;
-    }
+    /* Where does Tor pack the relay commands? Before or after we intercept
+     * these cells? */
+    try_relay_command = 1;
+  } else if (was_relay_crypt_successful && *was_relay_crypt_successful &&
+             is_recognized && *is_recognized) {
+    /* This cell is for us: we decrypted and recognized it */
+    try_relay_command = 1;
   }
 
-  if (try_relay_command) {
+  if (try_relay_command && cell->command == CELL_RELAY) {
     relay_header_t rh;
     relay_header_unpack(&rh, cell->payload);
     /* If we had access to the path, we could check integrity here and really

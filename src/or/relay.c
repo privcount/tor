@@ -241,7 +241,7 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
     /* This cell is never actually processed. Counters can ignore it using
      * was_relay_crypt_successful. */
     if (get_options()->EnablePrivCount) {
-      const int is_recognized = !recognized;
+      const int is_recognized = (int)recognized;
       const int was_relay_crypt_successful = 0;
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
@@ -252,7 +252,7 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
     return -END_CIRC_REASON_INTERNAL;
   }
 
-  const int is_recognized = !recognized;
+  const int is_recognized = (int)recognized;
   const int was_relay_crypt_successful = 1;
   /* Use the channel that the cell came from */
   if (get_options()->EnablePrivCount) {
