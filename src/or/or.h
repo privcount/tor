@@ -3418,6 +3418,10 @@ typedef struct or_circuit_t {
    * have to track whether PrivCount was enabled on the rend splice and
    * intro tap before providing their information. */
 
+  /** We can't find exit circuits whose streams have closed unless we tag them
+   * ourselves. */
+  unsigned int privcount_circuit_exit : 1;
+
   /** True iff this circuit was made with a CREATE_FAST cell, or a CREATE[2]
    * cell with a TAP handshake. We use this to tell Rend v2 from Rend v3. */
   unsigned int used_legacy_circuit_handshake : 1;

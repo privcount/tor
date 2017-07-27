@@ -6314,6 +6314,7 @@ privcount_connection_is_dns_resolve(const connection_t* conn)
 }
 #endif
 
+#if 0
 /* Is exitconn an Exit (or BEGINDIR) connection, and does it end at this
  * relay?
  * If exitconn is NULL, returns 0. */
@@ -6326,24 +6327,7 @@ privcount_connection_is_exit(const edge_connection_t* exitconn)
 
   return PRIVCOUNT_TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
 }
-
-/* Is any stream in the linked list starting with exitconn an Exit
- * (or BEGINDIR) connection, and does it end at this relay?
- * If exitconn is NULL, returns 0. */
-static int
-privcount_connection_list_any_is_exit(const edge_connection_t* exitconn)
-{
-  const edge_connection_t* ec = exitconn;
-  /* walk the linked list of exit streams, checking each one */
-  while (ec) {
-    if (privcount_connection_is_exit(ec)) {
-      return 1;
-    }
-    ec = ec->next_stream;
-  }
-
-  return 0;
-}
+#endif
 
 /* Is orcirc an origin circuit? (a circuit that originated here)
  * If orcirc is NULL, returns 0. */
@@ -6369,52 +6353,17 @@ privcount_circuit_is_origin(const circuit_t *circ)
   return 0;
 }
 
-/* Are conn or circ Exit (or BEGINDIR), and do they end at this relay?
- * This function returns occasional false positives when exitconn is NULL,
- * and there are no streams and no next channel.
- * If either is NULL, it is looked up from the other.
+/* Are conn or circ a non-BEGINDIR exit, and do they end at this relay?
+ * If orcirc is NULL, it is looked up from the exitconn.
  * If both are NULL, returns 0. */
 static int
 privcount_data_is_exit(const edge_connection_t* exitconn,
                        const or_circuit_t *orcirc)
 {
-  if (exitconn) {
-    /* look up orcirc from exitconn if it is NULL */
-    const or_circuit_t* oc = privcount_get_exit_const_or_circ(exitconn,
-                                                              orcirc);
+  const or_circuit_t* oc = privcount_get_exit_const_or_circ(exitconn, orcirc);
 
-    if (oc && privcount_circuit_is_origin(PRIVCOUNT_TO_CIRC(oc))) {
-      return 0;
-    }
-
-    return privcount_connection_is_exit(exitconn);
-  }
-
-  if (orcirc && !exitconn) {
-    const circuit_t *circ = PRIVCOUNT_TO_CIRC(orcirc);
-    tor_assert(circ);
-
-    if (privcount_circuit_is_origin(circ)) {
-      return 0;
-    }
-
-    /* If there are no streams, we just can't tell */
-    if (!orcirc->n_streams && !orcirc->resolving_streams) {
-      /* Probably not an exit connection */
-      return 0;
-    }
-
-    /* Walk the stream list to find out if any are exit streams */
-    if (privcount_connection_list_any_is_exit(orcirc->n_streams)) {
-      return 1;
-    }
-
-    if (privcount_connection_list_any_is_exit(orcirc->resolving_streams)) {
-      return 1;
-    }
-
-    /* Definitely not an exit connection: all streams are non-exit streams */
-    return 0;
+  if (oc) {
+    return oc->privcount_circuit_exit;
   }
 
   return 0;
@@ -7466,8 +7415,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   const int is_rend = privcount_circuit_is_rend(orcirc);
 
   const int is_dir = privcount_circuit_is_dir(circ) && !is_hsdir;
-  const int is_exit = (privcount_data_is_exit(NULL, orcirc) &&
-                       !is_dir && !is_hsdir);
+  const int is_exit = privcount_data_is_exit(NULL, orcirc);
 
   /* Extra Hidden Service flags */
   const int is_hs = is_hsdir || is_intro || is_rend;

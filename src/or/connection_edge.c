@@ -3142,6 +3142,10 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
     address = bcell.address;
     port = bcell.port;
 
+    if (or_circ) {
+      or_circ->privcount_circuit_exit = 1;
+    }
+
     if (or_circ && or_circ->p_chan) {
       if (!options->AllowSingleHopExits &&
            (or_circ->is_first_hop ||
