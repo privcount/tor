@@ -1,0 +1,7 @@
+  o Minor bugfixes (random numbers):
+    - Stop using random doubles with zero bits in the low part of the mantissa
+      when generating laplace noise. Instead, ensure that the 53 bits of the
+      mantissa are all random. Fixes bug 23061 on 0.2.2.14-alpha.
+    - Stop using random doubles with a bias away from 1.0 when generating
+      laplace noise. Instead, use rejection sampling to create an unbiased
+      result. Fixes bug 23061 on 0.2.2.14-alpha.
