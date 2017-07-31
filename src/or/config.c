@@ -452,6 +452,7 @@ static config_var_t option_vars_[] = {
   V(PublishServerDescriptor,     CSV,      "1"),
   V(PublishHidServDescriptors,   BOOL,     "1"),
   V(EnablePrivCount,             BOOL,     "0"),
+  V(PrivCountCircuitSampleRate,  DOUBLE,   "1.0"),
   V(ReachableAddresses,          LINELIST, NULL),
   V(ReachableDirAddresses,       LINELIST, NULL),
   V(ReachableORAddresses,        LINELIST, NULL),
@@ -4349,6 +4350,11 @@ options_validate(or_options_t *old_options, or_options_t *options,
   if (options->BridgeRelay == 1 && ! options->ORPort_set)
       REJECT("BridgeRelay is 1, ORPort is not set. This is an invalid "
              "combination.");
+
+  if (options->PrivCountCircuitSampleRate < 0.0 ||
+      options->PrivCountCircuitSampleRate > 1.0) {
+    REJECT("PrivCountCircuitSampleRate must be between 0.0 and 1.0.");
+  }
 
   return 0;
 }

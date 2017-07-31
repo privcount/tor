@@ -806,6 +806,19 @@ init_circuit_base(circuit_t *circ)
   // until the orconn is built.
   circ->timestamp_began = circ->timestamp_created;
 
+  /* Sample circuits, rejecting some at random */
+  const or_options_t *options = get_options();
+  /* Reject all circuits created when PrivCount is not active.
+   * Otherwise, the sample is biased towards circuits created in the
+   * microsecond (or OS timer granularity) when PrivCount was enabled.
+   * When sampling, use >=, because crypto_rand_double() is >= 0.0, and < 1.0,
+   * so we reject all when PrivCountCircuitSampleRate is 0.0, and
+   * none when it is 1.0. */
+  if (!options->EnablePrivCount ||
+      crypto_rand_double() >= options->PrivCountCircuitSampleRate) {
+    circ->privcount_event_sample_reject = 1;
+  }
+
   circ->package_window = circuit_initial_package_window();
   circ->deliver_window = CIRCWINDOW_START;
   cell_queue_init(&circ->n_chan_cells);

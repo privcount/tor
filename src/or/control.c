@@ -6390,6 +6390,11 @@ privcount_is_used_for_legacy_events(const connection_t* conn,
     return 0;
   }
 
+  /* Ignore events that we aren't sampling */
+  if (circ->privcount_event_sample_reject) {
+    return 0;
+  }
+
   /* if the circuit started here, this is our own stream and we can ignore it
    */
   if (circ && privcount_circuit_is_origin(circ)) {
@@ -7593,6 +7598,11 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   tor_assert(!was_relay_crypt_successful || *was_relay_crypt_successful == 0 ||
              *was_relay_crypt_successful == 1);
 
+  /* Ignore events that we aren't sampling */
+  if (circ && circ->privcount_event_sample_reject) {
+    return;
+  }
+
   /* Filter out circuit events for circuits that started before this
    * collection round. If we don't have a circuit, there will be no circuit
    * fields in the event. Most clients will want to filter NULL circuits out
@@ -8185,6 +8195,11 @@ control_event_privcount_circuit(circuit_t *circ,
              is_legacy_circuit_end == 1);
 
   if (BUG(!circ)) {
+    return;
+  }
+
+  /* Ignore events that we aren't sampling */
+  if (circ->privcount_event_sample_reject) {
     return;
   }
 

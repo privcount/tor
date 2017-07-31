@@ -2984,6 +2984,11 @@ typedef struct circuit_t {
   /* Has the tagged circuit close event been emitted? */
   unsigned int privcount_event_emitted : 1;
 
+  /* Did we decide not to sample this circuit?
+   * 1 if we *don't* want to send events for this circuit, its streams, and
+   * cells. 0 if we do. */
+  unsigned int privcount_event_sample_reject : 1;
+
   uint8_t state; /**< Current status of this circuit. */
   uint8_t purpose; /**< Why are we creating this circuit? */
 
@@ -4588,6 +4593,11 @@ typedef struct {
    * Used to filter out events from objects that were created before PrivCount
    * was enabled. */
   struct timeval enable_privcount_timestamp;
+  /* Sample circuits (and their corresponding streams and cells) at this rate.
+   * 0.0 means no circuit events, 1.0 (default) means all circuit events, and
+   * 0.5 means half the circuit events, selected at random at circuit
+   * creation. */
+  double PrivCountCircuitSampleRate;
 
   int IPv6Exit; /**< Do we support exiting to IPv6 addresses? */
 
