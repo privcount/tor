@@ -8,6 +8,7 @@
 #define CRYPTO_PRIVATE
 #include "or.h"
 #include "test.h"
+#include "testsupport.h"
 #include "aes.h"
 #include "util.h"
 #include "siphash.h"
@@ -17,6 +18,9 @@
 
 #include <openssl/evp.h>
 #include <openssl/rand.h>
+
+#include <math.h>
+#include <float.h>
 
 /** Run unit tests for Diffie-Hellman functionality. */
 static void
@@ -169,6 +173,23 @@ test_crypto_openssl_version(void *arg)
   ;
 }
 
+static uint64_t crypto_rand_return_uint64_value = 0;
+
+static void
+crypto_rand_return_uint64(char *to, size_t n)
+{
+  if (n != 8) {
+    TT_FAIL(("Asked for %d bytes, not 8", (int)n));
+    return;
+  }
+  memcpy(to, &crypto_rand_return_uint64_value,
+         sizeof(crypto_rand_return_uint64_value));
+  /* If we're called again, it's because the value is in the reject range.
+   * So reduce the value. This will cause a near-infinite loop if the reject
+   * range is large. */
+  crypto_rand_return_uint64_value--;
+}
+
 /** Run unit tests for our random number generation function and its wrappers.
  */
 static void
@@ -217,7 +238,69 @@ test_crypto_rng(void *arg)
   tt_int_op(63+4+6, OP_EQ, strlen(h));
 
   tt_assert(allok);
+
+  /* Test for regression to bug 23061, where we produced insufficiently
+   * granular random double values. */
+
+  /* Should be between 0 and 53. Larger values are more granular (better).
+   * On macOS x86_64, I get ~56 bits. */
+  #define EXPECTED_RAND_MANTISSA_BITS 53
+  int low_bits_zero_count = 0;
+  do {
+    /* First check the value is within the range */
+    d = crypto_rand_double();
+    tt_assert(d >= 0);
+    tt_assert(d < 1.0);
+    /* Now check the granularity, by finding the lower bits of the result. */
+    d *= pow(2, EXPECTED_RAND_MANTISSA_BITS);
+    d -= trunc(d);
+    low_bits_zero_count++;
+    /* If the granularity is equal to EXPECTED_RAND_MANTISSA_BITS, this will
+     * fail with probability 1 in 2**100, which is approximately the RAM bit
+     * error rate. */
+    tt_assert(low_bits_zero_count <= 100);
+  } while (d == 0.0);
+
+  /* Test the distribution */
+  int above_half_count = 0;
+  int below_half_count = 0;
+  for (i = 0; i < 100; i++) {
+    /* First check the value is within the range */
+    d = crypto_rand_double();
+    tt_assert(d >= 0);
+    tt_assert(d < 1.0);
+    /* Now check the distribution.
+     * Use less than, because d < 1.0. */
+    if (d < 0.5) {
+      below_half_count++;
+    } else {
+      above_half_count++;
+    }
+  }
+  /* If d is distributed uniformly, this will fail with probability
+   * 1 in 2**100, which is approximately the RAM bit error rate. */
+  tt_assert(above_half_count < 100);
+  tt_assert(below_half_count < 100);
+
+  /* Test that the minimum and maximum values result in 0.0 and
+   * predecessor(1.0) */
+  MOCK(crypto_rand, crypto_rand_return_uint64);
+
+  crypto_rand_return_uint64_value = 0;
+  d = crypto_rand_double();
+  tt_assert(d == 0.0);
+
+  crypto_rand_return_uint64_value = UINT64_MAX;
+  d = crypto_rand_double();
+  /* DBL_EPSILON is the smallest value x for which (1.0 + x) != 1.0.
+   * The floating-point resolution below 1.0 is twice the resolution above 1.0,
+   * so we use DBL_EPSILON/2.0 as the step between 1.0 and predecessor(1.0).
+   * We can't use == here, some compilers warn about double and ==.
+   * We could use nextafter() here when enough platforms support it. */
+  tt_assert(d >= (1.0 - DBL_EPSILON/2.0) && d < 1.0);
+
  done:
+  UNMOCK(crypto_rand);
   tor_free(h);
 }
 
