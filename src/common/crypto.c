@@ -3150,35 +3150,23 @@ crypto_rand_uint64(uint64_t max)
 }
 
 /** Return a pseudorandom double d, chosen uniformly from the range
- * 0.0 <= d < 1.0. d has a mantissa with at least 53 bits of randomness.
- * (Values < 0.25 may have more precision. Some processors may also have
- * internal floating point representations with more precision.)
+ * 0.0 <= d < 1.0.
  */
 double
 crypto_rand_double(void)
 {
-  uint64_t u;
-  double val;
-
-  /* 2**64 is equal to 18446744073709551616, which means that we will resample
-   * 1616 values at the upper end of the range. (1.8446744073709551e+19 rounds
-   * up to 1.8446744073709552 internally, so we can't use that value.) */
-#define UINT64_MAX_ROUNDED_DOWN_AS_DOUBLE 1.8446744073709550e+19
-
-  /* We ignore any values that are >= 'cutoff,' to avoid biasing the
-   * distribution with clipping at the upper end of the (double < 1.0)
-   * range.
-   */
-  double cutoff = 1.0;
-  while (1) {
-    crypto_rand((char*)&u, sizeof(u));
-    /* doubles are only guaranteed 53 random bits in the mantissa, so there
-     * are 11 bits that may be ignored here. */
-    val = ((double)u) / UINT64_MAX_ROUNDED_DOWN_AS_DOUBLE;
-    if (val < cutoff) {
-      return val;
-    }
-  }
+  /* We just use an unsigned int here; we don't really care about getting
+   * more than 32 bits of resolution */
+  unsigned int u;
+  crypto_rand((char*)&u, sizeof(u));
+#if SIZEOF_INT == 4
+#define UINT_MAX_AS_DOUBLE 4294967296.0
+#elif SIZEOF_INT == 8
+#define UINT_MAX_AS_DOUBLE 1.8446744073709552e+19
+#else
+#error SIZEOF_INT is neither 4 nor 8
+#endif
+  return ((double)u) / UINT_MAX_AS_DOUBLE;
 }
 
 /** Generate and return a new random hostname starting with <b>prefix</b>,
