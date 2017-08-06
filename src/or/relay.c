@@ -229,7 +229,7 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return 0;
@@ -246,7 +246,8 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &is_recognized,
-                                           &was_relay_crypt_successful);
+                                           &was_relay_crypt_successful,
+                                           NULL);
     }
 
     return -END_CIRC_REASON_INTERNAL;
@@ -261,19 +262,22 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
                                            cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &is_recognized,
-                                           &was_relay_crypt_successful);
+                                           &was_relay_crypt_successful,
+                                           NULL);
     } else if (!CIRCUIT_IS_ORIGIN(circ)) {
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &is_recognized,
-                                           &was_relay_crypt_successful);
+                                           &was_relay_crypt_successful,
+                                           NULL);
     } else {
       /* Send events for origin circuits, counters can filter them out using
        * the corresponding field. */
       control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
                                            &is_recognized,
-                                           &was_relay_crypt_successful);
+                                           &was_relay_crypt_successful,
+                                           NULL);
     }
   }
 
@@ -365,7 +369,7 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
                                   * we might kill the circ before we relay
                                   * the cells. */
 
-  append_cell_to_circuit_queue(circ, chan, cell, cell_direction, 0);
+  append_cell_to_circuit_queue(circ, chan, cell, cell_direction, 0, NULL);
   return 0;
 }
 
@@ -466,6 +470,8 @@ circuit_package_relay_cell(cell_t *cell, circuit_t *circ,
                            const char *filename, int lineno)
 {
   channel_t *chan; /* where to send the cell */
+  relay_header_t rh;
+  int have_relay_header = 0;
 
   if (cell_direction == CELL_DIRECTION_OUT) {
     crypt_path_t *thishop; /* counter for repeated crypts */
@@ -482,6 +488,16 @@ circuit_package_relay_cell(cell_t *cell, circuit_t *circ,
     }
 
     relay_set_digest(layer_hint->f_digest, cell);
+
+    /* PrivCount should only track the cell if the crypt succeeded,
+     * and we actually send it. We can only determine if the crypt
+     * was successful by first crypting the cell, after which we
+     * would have already lost the header.
+     */
+    if(get_options()->EnablePrivCount) {
+      relay_header_unpack(&rh, cell->payload);
+      have_relay_header = 1;
+    }
 
     thishop = layer_hint;
     /* moving from farthest to nearest hop */
@@ -508,12 +524,26 @@ circuit_package_relay_cell(cell_t *cell, circuit_t *circ,
     or_circ = TO_OR_CIRCUIT(circ);
     chan = or_circ->p_chan;
     relay_set_digest(or_circ->p_digest, cell);
+
+    /* PrivCount should only track the cell if the crypt succeeded,
+     * and we actually send it. We can only determine if the crypt
+     * was successful by first crypting the cell, after which we
+     * would have already lost the header.
+     */
+    if(get_options()->EnablePrivCount) {
+      relay_header_unpack(&rh, cell->payload);
+      have_relay_header = 1;
+    }
+
     if (relay_crypt_one_payload(or_circ->p_crypto, cell->payload, 1) < 0)
       return -1;
   }
   ++stats_n_relay_cells_relayed;
 
-  append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream);
+  if(have_relay_header)
+    append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream, &rh);
+  else
+    append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream, NULL);
   return 0;
 }
 
@@ -2807,7 +2837,7 @@ get_max_middle_cells(void)
 void
 append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
                              cell_t *cell, cell_direction_t direction,
-                             streamid_t fromstream)
+                             streamid_t fromstream, relay_header_t* rh)
 {
   or_circuit_t *orcirc = NULL;
   cell_queue_t *queue;
@@ -2826,16 +2856,33 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_SENT,
-                                           NULL, NULL);
+                                           NULL, NULL, rh);
     }
 
     return;
   }
 
+  /* All cells we are sending that show up here will have already been
+   * encrypted for the next hop. That means we won't be able to read
+   * the relay command when preparing the event for sending out of the
+   * control port (in control_event_privcount_circuit_cell).
+   *
+   * This is OK for all non-relay cells since they won't have a relay
+   * command anyway. It is also OK for relay cells that we receive in
+   * circuit_receive_relay_cell, but don't recognize and so we forward
+   * it on (we can't read those relay commands either).
+   *
+   * However, it is not OK for relay cells that we originate, because
+   * we *would* be able to read those relay commands if we sent the
+   * privcount event before encrypting the cell.
+   *
+   * We pass along the relay command here for those cases. There may
+   * be a more elegant way to handle this issue.
+   */
   if (get_options()->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, circ, cell,
                                          PRIVCOUNT_CELL_SENT,
-                                         NULL, NULL);
+                                         NULL, NULL, rh);
   }
 
   exitward = (direction == CELL_DIRECTION_OUT);

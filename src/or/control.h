@@ -198,7 +198,8 @@ void control_event_privcount_circuit_cell(
                                         const cell_t *cell,
                                         int is_sent,
                                         const int *is_recognized,
-                                        const int *was_relay_crypt_successful);
+                                        const int *was_relay_crypt_successful,
+                                        relay_header_t* precrypt_relay_header);
 #define PRIVCOUNT_CELL_RECEIVED 0
 #define PRIVCOUNT_CELL_SENT 1
 

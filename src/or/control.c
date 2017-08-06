@@ -7572,6 +7572,10 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
  *     0 when relay_crypt on a received cell failed, and
  *     NULL if a received cell was dropped before relay_crypt was called on it,
  *      or for sent cells.
+ * - precrypt_relay_header, which is:
+ *     a copy of the pre-encrypted relay header for relay and relay_early cells
+ *      that we originate and send
+ *     NULL for relay cells we receive or send by forwarding, and non-relay cells
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
  * Order is unimportant. Unknown fields are left out.
  * Also calls privcount_cell_transfer() to update the circuit cell counts. */
@@ -7581,7 +7585,8 @@ control_event_privcount_circuit_cell(const channel_t *chan,
                                      const cell_t *cell,
                                      int is_sent,
                                      const int *is_recognized,
-                                     const int *was_relay_crypt_successful)
+                                     const int *was_relay_crypt_successful,
+                                     relay_header_t* precrypt_relay_header)
 {
   /* Just in case */
   if (!get_options()->EnablePrivCount) {
@@ -7672,18 +7677,26 @@ control_event_privcount_circuit_cell(const channel_t *chan,
 
   int try_relay_command = 0;
   if (is_sent == PRIVCOUNT_CELL_SENT) {
-    /* Where does Tor pack the relay commands? Before or after we intercept
-     * these cells? */
-    try_relay_command = 1;
+    /* Cells we are sending have already been encrypted by the time this
+     * function is called. So we won't be able to recognize the unpacked
+     * relay header. Some of the cells (the relay and relay_early cells
+     * that we originate) should have passed in header info in
+     * precrypt_relay_header which we can use instead.*/
+    try_relay_command = 0;
   } else if (was_relay_crypt_successful && *was_relay_crypt_successful &&
              is_recognized && *is_recognized) {
     /* This cell is for us: we decrypted and recognized it */
     try_relay_command = 1;
   }
 
-  if (try_relay_command && cell->command == CELL_RELAY) {
+  if ((try_relay_command || precrypt_relay_header != NULL) &&
+      (cell->command == CELL_RELAY || cell->command == CELL_RELAY_EARLY)) {
     relay_header_t rh;
-    relay_header_unpack(&rh, cell->payload);
+    if(precrypt_relay_header) {
+      memcpy(&rh, precrypt_relay_header, sizeof(relay_header_t));
+    } else {
+      relay_header_unpack(&rh, cell->payload);
+    }
     /* If we had access to the path, we could check integrity here and really
      * be sure that the header is valid */
     if (rh.recognized == 0 && rh.length <= RELAY_PAYLOAD_SIZE) {

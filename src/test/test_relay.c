@@ -89,14 +89,14 @@ test_relay_append_cell_to_circuit_queue(void *arg)
   /* Append it */
   old_count = get_mock_scheduler_has_waiting_cells_count();
   append_cell_to_circuit_queue(TO_CIRCUIT(orcirc), nchan, cell,
-                               CELL_DIRECTION_OUT, 0);
+                               CELL_DIRECTION_OUT, 0, NULL);
   new_count = get_mock_scheduler_has_waiting_cells_count();
   tt_int_op(new_count, ==, old_count + 1);
 
   /* Now try the reverse direction */
   old_count = get_mock_scheduler_has_waiting_cells_count();
   append_cell_to_circuit_queue(TO_CIRCUIT(orcirc), pchan, cell,
-                               CELL_DIRECTION_IN, 0);
+                               CELL_DIRECTION_IN, 0, NULL);
   new_count = get_mock_scheduler_has_waiting_cells_count();
   tt_int_op(new_count, ==, old_count + 1);
 

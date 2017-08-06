@@ -738,7 +738,7 @@ circuit_deliver_create_cell(circuit_t *circ, const create_cell_t *create_cell,
   cell.circ_id = circ->n_circ_id;
 
   append_cell_to_circuit_queue(circ, circ->n_chan, &cell,
-                               CELL_DIRECTION_OUT, 0);
+                               CELL_DIRECTION_OUT, 0, NULL);
 
   if (CIRCUIT_IS_ORIGIN(circ)) {
     /* Update began timestamp for circuits starting their first hop */
@@ -1526,7 +1526,7 @@ onionskin_answer(or_circuit_t *circ,
   circ->is_first_hop = (created_cell->cell_type == CELL_CREATED_FAST);
 
   append_cell_to_circuit_queue(TO_CIRCUIT(circ),
-                               circ->p_chan, &cell, CELL_DIRECTION_IN, 0);
+                               circ->p_chan, &cell, CELL_DIRECTION_IN, 0, NULL);
   log_debug(LD_CIRC,"Finished sending '%s' cell.",
             circ->is_first_hop ? "created_fast" : "created");
 

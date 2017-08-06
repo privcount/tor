@@ -260,7 +260,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -285,7 +285,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -303,7 +303,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     channel_send_destroy(cell->circ_id, chan,
@@ -324,7 +324,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     channel_send_destroy(cell->circ_id, chan,
@@ -351,7 +351,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, NULL, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     channel_send_destroy(cell->circ_id, chan,
@@ -373,7 +373,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -388,7 +388,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
   if (options->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
                                          PRIVCOUNT_CELL_RECEIVED,
-                                         NULL, NULL);
+                                         NULL, NULL, NULL);
   }
 
   if (create_cell->handshake_type != ONION_HANDSHAKE_TYPE_FAST) {
@@ -471,7 +471,7 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -488,7 +488,7 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -503,7 +503,7 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
     if (get_options()->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -512,7 +512,7 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
   if (get_options()->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, circ, cell,
                                          PRIVCOUNT_CELL_RECEIVED,
-                                         NULL, NULL);
+                                         NULL, NULL, NULL);
   }
 
   if (CIRCUIT_IS_ORIGIN(circ)) { /* we're the OP. Handshake this. */
@@ -576,7 +576,7 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -592,7 +592,7 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     if (options->EnablePrivCount) {
       control_event_privcount_circuit_cell(chan, circ, cell,
                                            PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL);
+                                           NULL, NULL, NULL);
     }
 
     return;
@@ -636,7 +636,7 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
       if (options->EnablePrivCount) {
         control_event_privcount_circuit_cell(chan, circ, cell,
                                              PRIVCOUNT_CELL_RECEIVED,
-                                             NULL, NULL);
+                                             NULL, NULL, NULL);
       }
 
       return;
@@ -655,7 +655,7 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
         if (options->EnablePrivCount) {
           control_event_privcount_circuit_cell(chan, circ, cell,
                                                PRIVCOUNT_CELL_RECEIVED,
-                                               NULL, NULL);
+                                               NULL, NULL, NULL);
         }
 
         return;
@@ -710,7 +710,7 @@ command_process_destroy_cell(cell_t *cell, channel_t *chan)
   if (get_options()->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, circ, cell,
                                          PRIVCOUNT_CELL_RECEIVED,
-                                         NULL, NULL);
+                                         NULL, NULL, NULL);
   }
 
   if (!circ) {
