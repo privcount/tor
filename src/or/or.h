@@ -3083,6 +3083,10 @@ typedef struct circuit_t {
   uint64_t privcount_n_cells_received_inbound;
   uint64_t privcount_n_cells_sent_outbound;
   uint64_t privcount_n_cells_received_outbound;
+
+  /* A PrivCount cell counter to count the number of cell events that we
+   * have emitted to PrivCount via the control port. */
+  uint64_t privcount_n_cell_events_emitted;
 } circuit_t;
 
 /** Largest number of relay_early cells that we can send on a given
@@ -4598,6 +4602,11 @@ typedef struct {
    * 0.5 means half the circuit events, selected at random at circuit
    * creation. */
   double PrivCountCircuitSampleRate;
+  /* Do not emit more than this many cell events per circuit.
+   * A negative value means we should emit all events.
+   * Cells with no associated circuit will always be emitted and not counted
+   * against the cell limit for any circuit. */
+  int PrivCountMaxCellEventsPerCircuit;
 
   int IPv6Exit; /**< Do we support exiting to IPv6 addresses? */
 
