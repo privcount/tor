@@ -7611,7 +7611,7 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   /* Ignore cell events if we have already sent the maximum number of events. */
   int emit_limit = get_options()->PrivCountMaxCellEventsPerCircuit;
   if (circ && emit_limit >= 0 &&
-          circ->privcount_n_cell_events_emitted >= emit_limit) {
+          circ->privcount_n_cell_events_emitted >= (uint64_t)emit_limit) {
       return;
   }
 
