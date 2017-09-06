@@ -494,7 +494,7 @@ circuit_package_relay_cell(cell_t *cell, circuit_t *circ,
      * was successful by first crypting the cell, after which we
      * would have already lost the header.
      */
-    if(get_options()->EnablePrivCount) {
+    if (get_options()->EnablePrivCount) {
       relay_header_unpack(&rh, cell->payload);
       have_relay_header = 1;
     }
@@ -530,7 +530,7 @@ circuit_package_relay_cell(cell_t *cell, circuit_t *circ,
      * was successful by first crypting the cell, after which we
      * would have already lost the header.
      */
-    if(get_options()->EnablePrivCount) {
+    if (get_options()->EnablePrivCount) {
       relay_header_unpack(&rh, cell->payload);
       have_relay_header = 1;
     }
@@ -540,10 +540,12 @@ circuit_package_relay_cell(cell_t *cell, circuit_t *circ,
   }
   ++stats_n_relay_cells_relayed;
 
-  if(have_relay_header)
-    append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream, &rh);
+  if (have_relay_header)
+    append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream,
+                                 &rh);
   else
-    append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream, NULL);
+    append_cell_to_circuit_queue(circ, chan, cell, cell_direction, on_stream,
+                                 NULL);
   return 0;
 }
 

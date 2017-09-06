@@ -7575,7 +7575,8 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
  * - precrypt_relay_header, which is:
  *     a copy of the pre-encrypted relay header for relay and relay_early cells
  *      that we originate and send
- *     NULL for relay cells we receive or send by forwarding, and non-relay cells
+ *     NULL for relay cells we receive or send by forwarding, and non-relay
+ *      cells
  * This event uses tagged parameters: each field is preceded by 'FieldName='.
  * Order is unimportant. Unknown fields are left out.
  * Also calls privcount_cell_transfer() to update the circuit cell counts. */
@@ -7608,7 +7609,8 @@ control_event_privcount_circuit_cell(const channel_t *chan,
     return;
   }
 
-  /* Ignore cell events if we have already sent the maximum number of events. */
+  /* Ignore cell events if we have already sent the maximum number of events.
+   */
   int emit_limit = get_options()->PrivCountMaxCellEventsPerCircuit;
   if (circ && emit_limit >= 0 &&
           circ->privcount_n_cell_events_emitted >= (uint64_t)emit_limit) {
@@ -7699,7 +7701,7 @@ control_event_privcount_circuit_cell(const channel_t *chan,
   if ((try_relay_command || precrypt_relay_header != NULL) &&
       (cell->command == CELL_RELAY || cell->command == CELL_RELAY_EARLY)) {
     relay_header_t rh;
-    if(precrypt_relay_header) {
+    if (precrypt_relay_header) {
       memcpy(&rh, precrypt_relay_header, sizeof(relay_header_t));
     } else {
       relay_header_unpack(&rh, cell->payload);
@@ -7766,7 +7768,7 @@ control_event_privcount_circuit_cell(const channel_t *chan,
                      "650 PRIVCOUNT_CIRCUIT_CELL %s\r\n",
                      event_string);
 
-  if(circ) {
+  if (circ) {
       circ->privcount_n_cell_events_emitted = privcount_add_saturating(
                                   circ->privcount_n_cell_events_emitted,
                                   1);
