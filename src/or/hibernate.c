@@ -882,7 +882,7 @@ we_are_hibernating,(void))
 
 /** If we aren't currently dormant, close all connections and become
  * dormant. */
-static void
+void
 hibernate_go_dormant(time_t now)
 {
   connection_t *conn;
@@ -891,6 +891,8 @@ hibernate_go_dormant(time_t now)
     return;
   else if (hibernate_state == HIBERNATE_STATE_LOWBANDWIDTH)
     hibernate_state = HIBERNATE_STATE_DORMANT;
+  else if (hibernate_state == HIBERNATE_STATE_EXITING)
+    ; /* Avoid early termination */
   else
     hibernate_begin(HIBERNATE_STATE_DORMANT, now);
 
