@@ -379,7 +379,8 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     return;
   }
 
-  /* PrivCount uses this flag to distinguish v2 and v3 rend circuits */
+  /* PrivCount uses this flag to distinguish v2 and v3 intro and rend circuits
+   */
   if (create_cell->handshake_type == ONION_HANDSHAKE_TYPE_FAST ||
       create_cell->handshake_type == ONION_HANDSHAKE_TYPE_TAP) {
     circ->used_legacy_circuit_handshake = 1;

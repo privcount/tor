@@ -3432,7 +3432,8 @@ typedef struct or_circuit_t {
   unsigned int privcount_circuit_exit : 1;
 
   /** True iff this circuit was made with a CREATE_FAST cell, or a CREATE[2]
-   * cell with a TAP handshake. We use this to tell Rend v2 from Rend v3. */
+   * cell with a TAP handshake. We use this to tell Intro and Rend v2 from v3.
+   */
   unsigned int used_legacy_circuit_handshake : 1;
 
   /* We don't know the hidden service version unless we tag it ourselves.
@@ -3446,6 +3447,9 @@ typedef struct or_circuit_t {
   /** We can't find client intro circuits unless we tag them
    * ourselves. Service intro circuits have their own purpose. */
   unsigned int privcount_circuit_client_intro : 1;
+  /** v3 clients can use legacy client intros on old relays, but should use
+   * the v3 intro on recent tor versions (including this one) */
+  unsigned int privcount_circuit_client_intro_legacy : 1;
 
   /** We can't distinguish client and service rend circuits unless we tag them
    * ourselves. (Client rend circuits only have a specific purpose while

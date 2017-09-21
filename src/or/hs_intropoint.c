@@ -589,11 +589,10 @@ hs_intro_received_introduce1(or_circuit_t *circ, const uint8_t *request,
   /* We are sure here to have at least DIGEST_LEN bytes. */
   if (introduce1_cell_is_legacy(request)) {
     /* Handle a legacy cell. */
-    circ->privcount_hs_version_number = HS_VERSION_TWO;
+    circ->privcount_circuit_client_intro_legacy = 1;
     ret = rend_mid_introduce_legacy(circ, request, request_len);
   } else {
     /* Handle a non legacy cell. */
-    circ->privcount_hs_version_number = HS_VERSION_THREE;
     ret = handle_introduce1(circ, request, request_len);
   }
   return ret;

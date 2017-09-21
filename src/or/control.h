@@ -155,7 +155,7 @@ void privcount_mark_circuit_hsdir_conn(const dir_connection_t *dirconn,
                                        int hs_version_number, int is_store);
 
 void privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
-                                     const or_circuit_t *service_orcirc);
+                                     or_circuit_t *service_orcirc);
 void privcount_clear_intro_client_sink(or_circuit_t *orcirc);
 
 void privcount_byte_transfer(connection_t *conn,

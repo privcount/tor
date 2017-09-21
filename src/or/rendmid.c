@@ -112,8 +112,6 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
     goto err_no_close;
   }
 
-  circ->privcount_hs_version_number = HS_VERSION_TWO;
-
   /* Now, set up this circuit. */
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_INTRO_POINT);
   hs_circuitmap_register_intro_circ_v2(circ, (uint8_t *)pk_digest);
