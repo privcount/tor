@@ -6102,6 +6102,18 @@ privcount_circuit_is_client_intro(const or_circuit_t *orcirc)
   return orcirc && orcirc->privcount_circuit_client_intro;
 }
 
+/* Is orcirc an client-side intro circuit that ends at this relay,
+ * that has used the legacy introduction protocol?
+ * NULL circuits are not classified as intro circuits. */
+static int
+privcount_circuit_is_client_intro_legacy(const or_circuit_t *orcirc)
+{
+  /* Tor doesn't normally track client intro circuits, so we have to use
+   * our own flags */
+  return (privcount_circuit_is_client_intro(orcirc) &&
+          orcirc->privcount_circuit_client_intro_legacy);
+}
+
 /* Is orcirc an service-side intro circuit that ends at this relay?
  * NULL circuits are not classified as intro circuits. */
 static int
@@ -6198,7 +6210,7 @@ privcount_circuit_hs_version_number(const or_circuit_t *orcirc)
 /* Set the client sink fields in client_orcirc from service_orcirc */
 void
 privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
-                                const or_circuit_t *service_orcirc)
+                                or_circuit_t *service_orcirc)
 {
   if (BUG(!client_orcirc) || BUG(!service_orcirc) ||
       BUG(!privcount_circuit_is_client_intro(client_orcirc)) ||
@@ -6207,12 +6219,25 @@ privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
     return;
   }
 
-  /* There's no service to client link here: intro sinks accept intro cells
+  /* We marked the service side circuit when it opened.
+   * There's no service to client link here: intro sinks accept intro cells
    * from many clients */
-
   client_orcirc->privcount_intro_sink_p_chan_global_identifier =
                                     service_orcirc->p_chan->global_identifier;
   client_orcirc->privcount_intro_sink_p_circ_id = service_orcirc->p_circ_id;
+
+  /* We can't be sure of the hidden service version on intro points, because
+   * v3 services can use legacy intro points via the legacy protocol.
+   * But TAP handshakes are used for v2 client intro circuits, and ntor
+   * handshakes are used for v3 client intro circuits.
+   * We can guess that CREATE_FAST is almost always used for v2 as well. */
+  if (client_orcirc->used_legacy_circuit_handshake) {
+    client_orcirc->privcount_hs_version_number = HS_VERSION_TWO;
+    service_orcirc->privcount_hs_version_number = HS_VERSION_TWO;
+  } else {
+    client_orcirc->privcount_hs_version_number = HS_VERSION_THREE;
+    service_orcirc->privcount_hs_version_number = HS_VERSION_THREE;
+  }
 }
 
 /* Get the most recent intro service sink circuit for this client intro tap
@@ -7426,7 +7451,8 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   const int is_hs = is_hsdir || is_intro || is_rend;
   const int is_client_hs = privcount_circuit_is_client_hs(orcirc);
   const int hs_version_number = privcount_circuit_hs_version_number(orcirc);
-
+  const int is_client_intro_legacy = privcount_circuit_is_client_intro_legacy(
+                                                                       orcirc);
   /* Extra Circuit flags */
 
   /* This flag is sometimes set to the line number, but all we want is
@@ -7521,6 +7547,15 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
    *   next intro point chosen by the client over an extended circuit */
   if (is_intro) {
     smartlist_add_asprintf(fields, "%sIsIntroFlag=1", prefix);
+    /* Was the intro handshake a legacy handshake, or a v3 handshake?
+     * (v3 clients use the legacy handshake on old intro point relays)
+     * For tor relay versions >= 0.3.0.4-alpha (that is, for relays running
+     * this code), we expect this flag to be 0 for v2, and 1 for v3.
+     */
+    if (is_client_hs) {
+      smartlist_add_asprintf(fields, "%sIsClientIntroLegacyFlag=%d",
+                             prefix, is_client_intro_legacy);
+    }
   }
 
   /* A rendezvous circuit. Data is exchanged with the renezvous splice circuit.
