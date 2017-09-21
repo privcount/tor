@@ -262,7 +262,8 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     return -1;
   }
 
-  /* We don't know the hidden service version on rend points */
+  /* We don't know the hidden service version on rend points, until the
+   * service connects */
   circ->privcount_circuit_client_rend = 1;
 
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_POINT_WAITING);
@@ -356,7 +357,7 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
    * But TAP handshakes are used for v2 service rend circuits, and ntor
    * handshakes are used for v3 service rend circuits.
    * We can guess that CREATE_FAST is almost always used for v2 as well. */
-  if (circ->used_legacy_circuit_handshake) {
+  if (privcount_circuit_used_legacy_handshake(circ)) {
     circ->privcount_hs_version_number = HS_VERSION_TWO;
     rend_circ->privcount_hs_version_number = HS_VERSION_TWO;
   } else {

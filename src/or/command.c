@@ -379,12 +379,10 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     return;
   }
 
-  /* PrivCount uses this flag to distinguish v2 and v3 intro and rend circuits
-   */
-  if (create_cell->handshake_type == ONION_HANDSHAKE_TYPE_FAST ||
-      create_cell->handshake_type == ONION_HANDSHAKE_TYPE_TAP) {
-    circ->used_legacy_circuit_handshake = 1;
-  }
+  /* PrivCount uses these fields to distinguish v2 and v3 intro and rend
+   * circuits */
+  circ->privcount_circuit_has_received_create_cell = 1;
+  circ->privcount_circuit_onion_handshake_type = create_cell->handshake_type;
 
   if (options->EnablePrivCount) {
     control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,

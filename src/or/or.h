@@ -3431,10 +3431,18 @@ typedef struct or_circuit_t {
    * ourselves. */
   unsigned int privcount_circuit_exit : 1;
 
-  /** True iff this circuit was made with a CREATE_FAST cell, or a CREATE[2]
-   * cell with a TAP handshake. We use this to tell Intro and Rend v2 from v3.
+  /** Has this circuit received a create cell? */
+  unsigned int privcount_circuit_has_received_create_cell : 1;
+
+  /** Contains the ONION_HANDSHAKE_TYPE used on this circuit.
+   * Only valid if privcount_circuit_has_received_create_cell is true.
+   * We use this to tell Intro and Rend v2 from v3.
    */
-  unsigned int used_legacy_circuit_handshake : 1;
+  unsigned int privcount_circuit_onion_handshake_type : 2;
+
+#if MAX_ONION_HANDSHAKE_TYPE > 0x0003
+#error unexpectedly large MAX_ONION_HANDSHAKE_TYPE
+#endif
 
   /* We don't know the hidden service version unless we tag it ourselves.
    * 0 means "unknown", valid versions are 2 and 3. */

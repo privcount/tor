@@ -6207,6 +6207,44 @@ privcount_circuit_hs_version_number(const or_circuit_t *orcirc)
   }
 }
 
+/* If orcirc is not NULL, and has received a create cell, returns true. */
+static int
+privcount_circuit_has_received_create_cell(const or_circuit_t *orcirc)
+{
+  return orcirc && orcirc->privcount_circuit_has_received_create_cell;
+}
+
+/* If orcirc is not NULL, and has received a create cell, returns the
+ * onion handshake type in that create cell.
+ * Otherwise, returns -1. */
+static int
+privcount_circuit_onion_handshake_type(const or_circuit_t *orcirc)
+{
+  if (!orcirc) {
+    return -1;
+  }
+
+  return orcirc->privcount_circuit_onion_handshake_type;
+}
+
+/* If orcirc is not NULL, and used the TAP or CREATE_FAST handshake,
+ * returns true. */
+int
+privcount_circuit_used_legacy_handshake(const or_circuit_t *orcirc)
+{
+  if (!orcirc) {
+    return 0;
+  }
+
+  if (!privcount_circuit_has_received_create_cell(orcirc)) {
+    return 0;
+  }
+
+  return (
+  orcirc->privcount_circuit_onion_handshake_type == ONION_HANDSHAKE_TYPE_TAP ||
+  orcirc->privcount_circuit_onion_handshake_type == ONION_HANDSHAKE_TYPE_FAST);
+}
+
 /* Set the client sink fields in client_orcirc from service_orcirc */
 void
 privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
@@ -6237,7 +6275,7 @@ privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
    * But TAP handshakes are used for v2 client intro circuits, and ntor
    * handshakes are used for v3 client intro circuits.
    * We can guess that CREATE_FAST is almost always used for v2 as well. */
-  if (client_orcirc->used_legacy_circuit_handshake) {
+  if (privcount_circuit_used_legacy_handshake(client_orcirc)) {
     client_orcirc->privcount_hs_version_number = HS_VERSION_TWO;
     service_orcirc->privcount_hs_version_number = HS_VERSION_TWO;
   } else {
@@ -7453,11 +7491,15 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   const int is_dir = privcount_circuit_is_dir(circ) && !is_hsdir;
   const int is_exit = privcount_data_is_exit(NULL, orcirc);
 
-  /* Extra Hidden Service flags */
+  /* Extra Hidden Service flags and fields */
   const int is_hs = is_hsdir || is_intro || is_rend;
   const int is_client_hs = privcount_circuit_is_client_hs(orcirc);
   const int hs_version_number = privcount_circuit_hs_version_number(orcirc);
   const int is_client_intro_legacy = privcount_circuit_is_client_intro_legacy(
+                                                                       orcirc);
+  const int has_create_cell = privcount_circuit_has_received_create_cell(
+                                                                       orcirc);
+  const int onion_handshake_type = privcount_circuit_onion_handshake_type(
                                                                        orcirc);
   /* Extra Circuit flags */
 
@@ -7589,6 +7631,19 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   if (is_marked_for_close) {
     smartlist_add_asprintf(fields, "%sIsMarkedForCloseFlag=1",
                            prefix);
+  }
+
+  if (has_create_cell) {
+    /* This is only false when create cell parsing fails (or we are on a
+     * non-OR circuit, and can be derived from OnionHandshakeType. */
+    smartlist_add_asprintf(fields, "%sHasReceivedCreateCellFlag=1",
+                           prefix);
+    /* This is valid as long as we are on an OR circuit where cell parsing
+     * succeeded. */
+    if (onion_handshake_type != -1) {
+      smartlist_add_asprintf(fields, "%sOnionHandshakeType=%d",
+                             prefix, onion_handshake_type);
+    }
   }
 
   privcount_add_circuit_id_fields(fields, circ, prefix);
