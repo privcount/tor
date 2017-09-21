@@ -3472,6 +3472,10 @@ typedef struct or_circuit_t {
   uint64_t privcount_intro_sink_p_chan_global_identifier;
   circid_t privcount_intro_sink_p_circ_id;
 
+  /* If the introduction or rendezvous failed, why did it fail?
+   * Applies to both client-side and service-side circuits. */
+  const char *privcount_circuit_failure_reason;
+
   /** Number of cells that were removed from circuit queue; reset every
    * time when writing buffer stats to disk. */
   uint32_t processed_cells;

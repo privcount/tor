@@ -224,6 +224,7 @@ handle_establish_intro(or_circuit_t *circ, const uint8_t *request,
 
   /* Check that the circuit is in shape to become an intro point */
   if (!hs_intro_circuit_is_suitable_for_establish_intro(circ)) {
+    circ->privcount_circuit_failure_reason = "FailedCircuit";
     goto err;
   }
 
@@ -234,6 +235,8 @@ handle_establish_intro(or_circuit_t *circ, const uint8_t *request,
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "Rejecting %s ESTABLISH_INTRO cell.",
            parsing_result == -1 ? "invalid" : "truncated");
+    circ->privcount_circuit_failure_reason = (parsing_result == -1 ?
+                                              "InvalidCell" : "TruncatedCell");
     goto err;
   }
 
@@ -243,6 +246,7 @@ handle_establish_intro(or_circuit_t *circ, const uint8_t *request,
   if (cell_ok < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "Failed to verify ESTABLISH_INTRO cell.");
+    circ->privcount_circuit_failure_reason = "FailedVerifyCell";
     goto err;
   }
 
@@ -310,6 +314,7 @@ hs_intro_received_establish_intro(or_circuit_t *circ, const uint8_t *request,
 
   if (request_len == 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL, "Empty ESTABLISH_INTRO cell.");
+    circ->privcount_circuit_failure_reason = "EmptyCell";
     goto err;
   }
 
@@ -325,6 +330,7 @@ hs_intro_received_establish_intro(or_circuit_t *circ, const uint8_t *request,
     default:
       log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
              "Unrecognized AUTH_KEY_TYPE %u.", first_byte);
+      circ->privcount_circuit_failure_reason = "UnrecognizedAuthKeyType";
       goto err;
   }
 
@@ -451,6 +457,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
            cell_size == -1 ? "invalid" : "truncated");
     /* Inform client that the INTRODUCE1 has a bad format. */
     status = HS_INTRO_ACK_STATUS_BAD_FORMAT;
+    client_circ->privcount_circuit_failure_reason = "FailedParseCell";
     goto send_ack;
   }
 
@@ -458,6 +465,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
   if (validate_introduce1_parsed_cell(parsed_cell) < 0) {
     /* Inform client that the INTRODUCE1 has bad format. */
     status = HS_INTRO_ACK_STATUS_BAD_FORMAT;
+    client_circ->privcount_circuit_failure_reason = "FailedValidateCell";
     goto send_ack;
   }
 
@@ -475,6 +483,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
                safe_str(b64_key), client_circ->p_circ_id);
       /* Inform the client that we don't know the requested service ID. */
       status = HS_INTRO_ACK_STATUS_UNKNOWN_ID;
+      client_circ->privcount_circuit_failure_reason = "FailedLookupCircuit";
       goto send_ack;
     }
   }
@@ -535,12 +544,13 @@ introduce1_cell_is_legacy(const uint8_t *request)
 /* Return true iff the circuit <b>circ</b> is suitable for receiving an
  * INTRODUCE1 cell. */
 STATIC int
-circuit_is_suitable_for_introduce1(const or_circuit_t *circ)
+circuit_is_suitable_for_introduce1(or_circuit_t *circ)
 {
   tor_assert(circ);
 
   /* Is this circuit an intro point circuit? */
   if (!circuit_is_suitable_intro_point(circ, "INTRODUCE1")) {
+    circ->privcount_circuit_failure_reason = "FailedCircuit";
     return 0;
   }
 
@@ -549,6 +559,7 @@ circuit_is_suitable_for_introduce1(const or_circuit_t *circ)
            "Blocking multiple introductions on the same circuit. "
            "Someone might be trying to attack a hidden service through "
            "this relay.");
+    circ->privcount_circuit_failure_reason = "MoreThanOneCell";
     return 0;
   }
 
@@ -573,6 +584,7 @@ hs_intro_received_introduce1(or_circuit_t *circ, const uint8_t *request,
    * it's a legacy cell or not using the first DIGEST_LEN bytes. */
   if (request_len < DIGEST_LEN) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL, "Invalid INTRODUCE1 cell length.");
+    circ->privcount_circuit_failure_reason = "TruncatedCell";
     goto err;
   }
 

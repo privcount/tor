@@ -764,6 +764,15 @@ relay_send_command_from_edge_,(streamid_t stream_id, circuit_t *circ,
   if (circuit_package_relay_cell(&cell, circ, cell_direction, cpath_layer,
                                  stream_id, filename, lineno) < 0) {
     log_warn(LD_BUG,"circuit_package_relay_cell failed. Closing.");
+    if (CIRCUIT_IS_ORCIRC(circ) &&
+        (relay_command == RELAY_COMMAND_INTRO_ESTABLISHED ||
+         relay_command == RELAY_COMMAND_INTRODUCE2 ||
+         relay_command == RELAY_COMMAND_INTRODUCE_ACK ||
+         relay_command == RELAY_COMMAND_RENDEZVOUS_ESTABLISHED ||
+         relay_command == RELAY_COMMAND_RENDEZVOUS2)) {
+      or_circuit_t *orcirc = TO_OR_CIRCUIT(circ);
+      orcirc->privcount_circuit_failure_reason = "FailedPackageCell";
+    }
     circuit_mark_for_close(circ, END_CIRC_REASON_INTERNAL);
     return -1;
   }

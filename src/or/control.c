@@ -6245,6 +6245,18 @@ privcount_circuit_used_legacy_handshake(const or_circuit_t *orcirc)
   orcirc->privcount_circuit_onion_handshake_type == ONION_HANDSHAKE_TYPE_FAST);
 }
 
+/* If orcirc is not NULL, and is an intro or rend circuit that failed, returns
+ * a string containing the failure reason. Otherwise, returns NULL. */
+static const char *
+privcount_circuit_failure_reason(const or_circuit_t *orcirc)
+{
+  if (!orcirc) {
+    return NULL;
+  }
+
+  return orcirc->privcount_circuit_failure_reason;
+}
+
 /* Set the client sink fields in client_orcirc from service_orcirc */
 void
 privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
@@ -7501,6 +7513,8 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
                                                                        orcirc);
   const int onion_handshake_type = privcount_circuit_onion_handshake_type(
                                                                        orcirc);
+  const char *failure_reason = privcount_circuit_failure_reason(orcirc);
+
   /* Extra Circuit flags */
 
   /* This flag is sometimes set to the line number, but all we want is
@@ -7644,6 +7658,14 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
       smartlist_add_asprintf(fields, "%sOnionHandshakeType=%d",
                              prefix, onion_handshake_type);
     }
+  }
+
+  if (failure_reason) {
+    /* Report any circuit failure reason, if present */
+    char *clean_str = privcount_cleanse_tagged_str_dup(failure_reason);
+    smartlist_add_asprintf(fields, "%sFailureReasonString=%s",
+                           prefix, clean_str);
+    tor_free(clean_str);
   }
 
   privcount_add_circuit_id_fields(fields, circ, prefix);

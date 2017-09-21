@@ -53,7 +53,7 @@ STATIC int introduce1_cell_is_legacy(const uint8_t *request);
 STATIC int handle_introduce1(or_circuit_t *client_circ,
                              const uint8_t *request, size_t request_len);
 STATIC int validate_introduce1_parsed_cell(const hs_cell_introduce1_t *cell);
-STATIC int circuit_is_suitable_for_introduce1(const or_circuit_t *circ);
+STATIC int circuit_is_suitable_for_introduce1(or_circuit_t *circ);
 
 #endif /* HS_INTROPOINT_PRIVATE */
 
