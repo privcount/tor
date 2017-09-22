@@ -8383,11 +8383,16 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   /* Checked in control_event_privcount_circuit() */
   tor_assert(orconn);
 
-  /* Filter out connection overhead (directory circuits at directories). */
+  (void)privcount_is_used_for_legacy_connection_events;
+#if 0
+  /* Filter out connection overhead (DirPort connections at directories).
+   * Currently, this function always returns false when passed an orconn,
+   * because orconns can be used for both BEGINDIR and other data. */
   if (!privcount_is_used_for_legacy_connection_events(
                                                 PRIVCOUNT_TO_CONN(orconn))) {
     return;
   }
+#endif
 
   /* Get the time as early as possible, but after we're sure we want it */
   char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
