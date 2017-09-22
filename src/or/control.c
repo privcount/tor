@@ -6422,7 +6422,7 @@ privcount_is_used_for_legacy_events(const connection_t* conn,
   }
 
   /* Ignore events that we aren't sampling */
-  if (circ->privcount_event_sample_reject) {
+  if (circ && circ->privcount_event_sample_reject) {
     return 0;
   }
 
