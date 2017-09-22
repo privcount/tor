@@ -8446,6 +8446,36 @@ control_event_privcount_circuit(circuit_t *circ,
   tor_free(n_addr);
 }
 
+/* How many current connections have the same real remote address as orconn?
+ * Connections are counted, even if they are marked for close.
+ *
+ * Each client makes 1 connection to its guard. Each relay makes 1 connection
+ * to each other relay, but there can be more than one relay on an outbound
+ * address. */
+static size_t
+privcount_connection_or_count_by_remote_addr(const tor_addr_t *remote_addr)
+{
+  if (!remote_addr || tor_addr_is_null(remote_addr)) {
+    return 0;
+  }
+
+  size_t conn_on_remote_addr_count = 0;
+
+  /* Modified from DIR_CONN_LIST_TEMPLATE in connection.c
+   * This loop may be expensive, but we only do it when a connection closes */
+  smartlist_t *conns = get_connection_array();
+  SMARTLIST_FOREACH_BEGIN(conns, connection_t *, conn_var) {
+    if (conn_var && conn_var->type == CONN_TYPE_OR) {
+      or_connection_t *orconn_var = TO_OR_CONN(conn_var);
+      if (orconn_var && tor_addr_eq(remote_addr, &orconn_var->real_addr)) {
+        conn_on_remote_addr_count++;
+      }
+    }
+  } SMARTLIST_FOREACH_END(conn_var);
+
+  return conn_on_remote_addr_count;
+}
+
 /* Send a PrivCount connection end event triggered on orconn, which can be any
  * type of OR circuit, and in any position in the circuit (except for origin).
  * This event uses positional fields: order is important.
