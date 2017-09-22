@@ -6628,7 +6628,7 @@ privcount_chan_addr_to_str_dup(const channel_t *chan)
  * exitconn, or a placeholder if exitconn is NULL or has a null addr.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_conn_addr_to_str_dup(const edge_connection_t *exitconn)
+privcount_conn_edge_addr_to_str_dup(const edge_connection_t *exitconn)
 {
   if (exitconn) {
     if (!tor_addr_is_null(&exitconn->base_.addr)) {
@@ -6645,16 +6645,36 @@ privcount_conn_addr_to_str_dup(const edge_connection_t *exitconn)
  * or a placeholder if exitconn is NULL or has no address.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_conn_host_to_str_dup(const edge_connection_t *exitconn)
+privcount_conn_edge_host_to_str_dup(const edge_connection_t *exitconn)
 {
   if (exitconn) {
     if (exitconn->base_.address) {
       return tor_strdup(exitconn->base_.address);
     } else {
-      return privcount_conn_addr_to_str_dup(exitconn);
+      return privcount_conn_edge_addr_to_str_dup(exitconn);
     }
   } else {
     return tor_strdup(NO_CONNECTION_HOST);
+  }
+}
+
+/* Return a newly allocated string containing the remote address of orconn,
+ * (not the address claimed by the relay at the end of orconn)
+ * or a placeholder if orconn is NULL or has no address.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_conn_or_addr_to_str_dup(const or_connection_t *orconn)
+{
+  if (orconn) {
+    /* TO_CONN(orconn)->addr can be overwritten by the remote relay descriptor
+     * address */
+    if (!tor_addr_is_null(&orconn->real_addr)) {
+      return tor_addr_to_str_dup(&orconn->real_addr);
+    } else {
+      return tor_strdup(NO_CONNECTION_ADDRESS);
+    }
+  } else {
+    return tor_strdup(NO_CONNECTION_ADDRESS);
   }
 }
 
@@ -7192,7 +7212,7 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
 
   /* Get the time as early as possible, but after we're sure we want it */
   char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
-  char *host_str = privcount_conn_host_to_str_dup(exitconn);
+  char *host_str = privcount_conn_edge_host_to_str_dup(exitconn);
 
   /* ChanID, CircID, StreamID, Address, Time */
   send_control_event(EVENT_PRIVCOUNT_DNS_RESOLVED,
@@ -7310,8 +7330,8 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
                                       &exitconn->base_.timestamp_created_tv,
                                       NULL);
 
-  char *host_str = privcount_conn_host_to_str_dup(exitconn);
-  char *addr_str = privcount_conn_addr_to_str_dup(exitconn);
+  char *host_str = privcount_conn_edge_host_to_str_dup(exitconn);
+  char *addr_str = privcount_conn_edge_addr_to_str_dup(exitconn);
 
   /* ChanID, CircID, StreamID, ExitPort, ReadBW, WriteBW, TimeStart, TimeEnd,
    * RemoteHost, RemoteIP */
@@ -8378,7 +8398,7 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
   const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
   int is_client = privcount_is_client(chan);
 
-  char *addr = privcount_chan_addr_to_str_dup(chan);
+  char *addr = privcount_conn_or_addr_to_str_dup(orconn);
 
   /* ChanID, TimeStart, TimeEnd, IP, isClient */
   send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
