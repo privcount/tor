@@ -8477,6 +8477,44 @@ privcount_connection_or_count_by_remote_addr(const tor_addr_t *remote_addr)
   return conn_on_remote_addr_count;
 }
 
+/* How many relays in the current consensus have the same IPv4 or IPv6 ORPort
+ * address as node_addr?
+ */
+static size_t
+privcount_relay_count_by_node_addr(const tor_addr_t *node_addr)
+{
+  if (!node_addr || tor_addr_is_null(node_addr)) {
+    return 0;
+  }
+
+  size_t relay_on_node_addr_count = 0;
+
+  /* This loop may be expensive, but we only do it when a connection closes */
+  smartlist_t *nodes = nodelist_get_list();
+  SMARTLIST_FOREACH_BEGIN(nodes, node_t *, node) {
+    if (node) {
+      /* Get the address type that matches node_addr */
+      tor_addr_port_t node_or_ap;
+      if (tor_addr_is_v4(node_addr)) {
+        /* Every node has an IPv4 address */
+        node_get_prim_orport(node, &node_or_ap);
+      } else if (node_has_ipv6_orport(node)) {
+        /* Some nodes have an IPv6 address */
+        node_get_pref_ipv6_orport(node, &node_or_ap);
+      } else {
+        /* And some nodes don't */
+        continue;
+      }
+      /* And compare */
+      if (tor_addr_eq(node_addr, &node_or_ap.addr)) {
+        relay_on_node_addr_count++;
+      }
+    }
+  } SMARTLIST_FOREACH_END(node);
+
+  return relay_on_node_addr_count;
+}
+
 /* Send a PrivCount connection end event triggered on orconn, which can be any
  * type of OR circuit, and in any position in the circuit (except for origin).
  * This event uses positional fields: order is important.
