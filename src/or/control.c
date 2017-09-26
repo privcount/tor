@@ -6395,21 +6395,6 @@ privcount_connection_is_dns_resolve(const connection_t* conn)
 }
 #endif
 
-#if 0
-/* Is exitconn an Exit (or BEGINDIR) connection, and does it end at this
- * relay?
- * If exitconn is NULL, returns 0. */
-static int
-privcount_connection_is_exit(const edge_connection_t* exitconn)
-{
-  if (!exitconn) {
-    return 0;
-  }
-
-  return PRIVCOUNT_TO_CONN(exitconn)->type == CONN_TYPE_EXIT;
-}
-#endif
-
 /* Is orcirc an origin circuit? (a circuit that originated here)
  * If orcirc is NULL, returns 0. */
 static int
@@ -6553,14 +6538,6 @@ privcount_is_used_for_legacy_cell_counters(const circuit_t *circ)
   /* Cell counters are only used in circuit events, so the checks are the
    * same. */
   return privcount_is_used_for_legacy_circuit_events(circ);
-}
-
-/* Should PrivCount send connection events for this connection?
- * If conn is NULL, return 0. */
-static int
-privcount_is_used_for_legacy_connection_events(const connection_t *conn)
-{
-  return privcount_is_used_for_legacy_events(conn, NULL);
 }
 
 /* Should PrivCount send DNS events from this connection or circuit?
@@ -8528,17 +8505,6 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
 
   /* Checked in control_event_privcount_circuit() */
   tor_assert(orconn);
-
-  (void)privcount_is_used_for_legacy_connection_events;
-#if 0
-  /* Filter out connection overhead (DirPort connections at directories).
-   * Currently, this function always returns false when passed an orconn,
-   * because orconns can be used for both BEGINDIR and other data. */
-  if (!privcount_is_used_for_legacy_connection_events(
-                                                PRIVCOUNT_TO_CONN(orconn))) {
-    return;
-  }
-#endif
 
   /* Get the time as early as possible, but after we're sure we want it */
   char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
