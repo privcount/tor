@@ -8446,8 +8446,9 @@ control_event_privcount_circuit(circuit_t *circ,
   tor_free(n_addr);
 }
 
-/* How many current connections have the same real remote address as orconn?
- * Connections are counted, even if they are marked for close.
+/* How many current connections have the same real remote address as
+ * remote_addr?
+ * All connections are counted, even if they are marked for close.
  *
  * Each client makes 1 connection to its guard. Each relay makes 1 connection
  * to each other relay, but there can be more than one relay on an outbound
