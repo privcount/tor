@@ -834,7 +834,7 @@ connection_mark_for_close_internal_, (connection_t *conn,
               "Calling connection_mark_for_close_internal_() on an OR conn "
               "at %s:%d",
               file, line);
-    control_event_privcount_connection_ended(TO_OR_CONN(conn));
+    control_event_privcount_connection(TO_OR_CONN(conn));
   }
 
   conn->marked_for_close = line;

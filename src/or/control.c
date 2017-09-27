@@ -1199,9 +1199,7 @@ static const struct control_event_t control_event_table[] = {
   */
   { EVENT_PRIVCOUNT_CIRCUIT_CELL, "PRIVCOUNT_CIRCUIT_CELL" },
   { EVENT_PRIVCOUNT_CIRCUIT_CLOSE, "PRIVCOUNT_CIRCUIT_CLOSE" },
-  /*
-   * { EVENT_PRIVCOUNT_CONNECTION_CLOSE, "PRIVCOUNT_CONNECTION_CLOSE" },
-   */
+  { EVENT_PRIVCOUNT_CONNECTION_CLOSE, "PRIVCOUNT_CONNECTION_CLOSE" },
   { 0, NULL },
 };
 
@@ -6690,13 +6688,34 @@ privcount_conn_edge_host_to_str_dup(const edge_connection_t *exitconn)
  * or a placeholder if orconn is NULL or has no address.
  * The returned string must be freed using tor_free(). */
 static char *
-privcount_conn_or_addr_to_str_dup(const or_connection_t *orconn)
+privcount_conn_or_real_addr_to_str_dup(const or_connection_t *orconn)
 {
   if (orconn) {
     /* TO_CONN(orconn)->addr can be overwritten by the remote relay descriptor
      * address */
     if (!tor_addr_is_null(&orconn->real_addr)) {
       return tor_addr_to_str_dup(&orconn->real_addr);
+    } else {
+      return tor_strdup(NO_CONNECTION_ADDRESS);
+    }
+  } else {
+    return tor_strdup(NO_CONNECTION_ADDRESS);
+  }
+}
+
+/* Return a newly allocated string containing the relay address of orconn,
+ * (the address claimed by the relay at the end of orconn, if any),
+ * or the actual remote address,
+ * or a placeholder if orconn is NULL or has no address.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_conn_or_peer_addr_to_str_dup(const or_connection_t *orconn)
+{
+  if (orconn) {
+    /* TO_CONN(orconn)->addr can be overwritten by the remote relay descriptor
+     * address */
+    if (TO_CONN(orconn) && !tor_addr_is_null(&TO_CONN(orconn)->addr)) {
+      return tor_addr_to_str_dup(&TO_CONN(orconn)->addr);
     } else {
       return tor_strdup(NO_CONNECTION_ADDRESS);
     }
@@ -8493,29 +8512,120 @@ privcount_relay_count_by_node_addr(const tor_addr_t *node_addr)
 }
 
 /* Send a PrivCount connection end event triggered on orconn, which can be any
- * type of OR circuit, and in any position in the circuit (except for origin).
- * This event uses positional fields: order is important.
- * orconn must not be NULL. */
-void
-control_event_privcount_connection_ended(const or_connection_t *orconn)
+ * type of OR circuit, and in any position in the circuit.
+ * This event uses tagged parameters: each field is preceded by 'FieldName='.
+ * Order is unimportant. Unknown fields may be left out.
+ * All pointer arguments must not be NULL. */
+static void
+control_event_privcount_connection_close(const or_connection_t *orconn,
+                                         const char *created_str,
+                                         const char *now_str,
+                                         const char *remote_addr,
+                                         int is_client)
 {
-  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
-    return;
+  /* Checked in control_event_privcount_connection() */
+  tor_assert(orconn);
+  tor_assert(created_str);
+  tor_assert(now_str);
+  tor_assert(remote_addr);
+  tor_assert(is_client == 0 || is_client == 1);
+
+  /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* Use generic names so coding the injector is easier */
+  tor_assert(privcount_tagged_str_is_clean(now_str));
+  smartlist_add_asprintf(fields, "EventTimestamp=%s",
+                         now_str);
+
+  tor_assert(privcount_tagged_str_is_clean(created_str));
+  smartlist_add_asprintf(fields, "CreatedTimestamp=%s",
+                         created_str);
+
+  /* Now add the legacy event fields */
+
+  smartlist_add_asprintf(fields, "ChannelId=%" PRIu64,
+                         privcount_or_connection_chan_global_identifier(
+                                                                    orconn));
+
+  /* Is the remote side of the connection a client?
+   * Or did it authenticate as a relay? */
+  smartlist_add_asprintf(fields, "RemoteIsClientFlag=%d",
+                         is_client);
+
+  /* This is the IP address that the peer connected from (or that we connected
+   * to it on), not the address in the consensus */
+  smartlist_add_asprintf(fields, "RemoteIPAddress=%s",
+                         remote_addr);
+
+  /* Add the additional counts that aren't in the legacy event */
+
+  /* At the time this connection was marked for close, how many connections
+   * did we have from its remote address?
+   * - includes this connection, and any others marked for close
+   * - uses the actual address of the remote peer, not the relay's consensus
+   *   address (if any) */
+  smartlist_add_asprintf(fields, "RemoteIPAddressConnectionCount=%zu",
+                         privcount_connection_or_count_by_remote_addr(
+                                                        &orconn->real_addr));
+
+  /* This field only makes sense if the remote end is a relay */
+  if (!is_client) {
+    /* This is the IP address in the consensus (if any), or otherwise the
+     * remote address */
+    char *peer_addr = privcount_conn_or_peer_addr_to_str_dup(orconn);
+    privcount_cleanse_tagged_str(peer_addr);
+    smartlist_add_asprintf(fields, "PeerIPAddress=%s",
+                           peer_addr);
+    tor_free(peer_addr);
   }
 
-  /* Checked in control_event_privcount_circuit() */
+  /* But relays and clients can share the same address, so always show this
+   * field */
+
+  /* At the time this connection was marked for close, how many relays were
+   * in the consensus at this peer's address?
+   * - supports IPv4 and IPv6 connections and peer addresses
+   * - uses the consensus address of the remote peer, not the connection's
+   *   remote address (if they are different) */
+  smartlist_add_asprintf(fields, "PeerIPAddressConsensusRelayCount=%zu",
+                         privcount_relay_count_by_node_addr(
+                                                    &TO_CONN(orconn)->addr));
+
+  /* Now create the final string */
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory, so the string will never be empty */
+  tor_assert(len > 0);
+
+  send_control_event(EVENT_PRIVCOUNT_CONNECTION_CLOSE,
+                     "650 PRIVCOUNT_CONNECTION_CLOSE %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
+}
+
+/* Send a PrivCount connection end event triggered on orconn, which can be any
+ * type of OR circuit, and in any position in the circuit.
+ * This event uses positional fields: order is important.
+ * All pointer arguments must not be NULL. */
+static void
+control_event_privcount_connection_ended(const or_connection_t *orconn,
+                                         const char *created_str,
+                                         const char *now_str,
+                                         const char *remote_addr,
+                                         int is_client)
+{
+  /* Checked in control_event_privcount_connection() */
   tor_assert(orconn);
-
-  /* Get the time as early as possible, but after we're sure we want it */
-  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
-  char *created_str = privcount_timeval_to_epoch_str_dup(
-                                        &orconn->base_.timestamp_created_tv,
-                                        NULL);
-
-  const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
-  int is_client = privcount_is_client(chan);
-
-  char *addr = privcount_conn_or_addr_to_str_dup(orconn);
+  tor_assert(created_str);
+  tor_assert(now_str);
+  tor_assert(remote_addr);
+  tor_assert(is_client == 0 || is_client == 1);
 
   /* ChanID, TimeStart, TimeEnd, IP, isClient */
   send_control_event(EVENT_PRIVCOUNT_CONNECTION_ENDED,
@@ -8524,12 +8634,72 @@ control_event_privcount_connection_ended(const or_connection_t *orconn)
                      privcount_or_connection_chan_global_identifier(orconn),
                      created_str,
                      now_str,
-                     addr,
+                     remote_addr,
                      is_client);
+}
+
+/* Send PrivCount connection events triggered on conn, which is an OR
+ * connection.
+ * conn must not be NULL.
+ * Calls control_event_privcount_connection_close() to send the tagged event,
+ * and control_event_privcount_connection_ended() to send the equivalent
+ * legacy event for OR connections. Legacy events are sent for every
+ * connection event. */
+void
+control_event_privcount_connection(const or_connection_t *orconn)
+{
+  /* Just in case */
+  if (!get_options()->EnablePrivCount) {
+    return;
+  }
+
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_CLOSE) &&
+      !EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
+    return;
+  }
+
+  if (BUG(!orconn)) {
+    return;
+  }
+
+  /* Format the legacy fields: we use them in both events */
+
+  /* Get the time as early as possible, but after we're sure we want it */
+  char *now_str = privcount_timeval_now_to_epoch_str_dup(NULL);
+  char *created_str = privcount_timeval_to_epoch_str_dup(
+                                          &orconn->base_.timestamp_created_tv,
+                                          NULL);
+
+  const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+  int is_client = privcount_is_client(chan);
+
+  char *remote_addr = privcount_conn_or_real_addr_to_str_dup(orconn);
+
+  /* Cleanse the address string we just created: this is good for legacy
+   * events too, because they can't cope with spaces */
+  privcount_cleanse_tagged_str(remote_addr);
+
+  /* Emit the tagged event format */
+  if (EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_CLOSE)) {
+    control_event_privcount_connection_close(orconn,
+                                             created_str,
+                                             now_str,
+                                             remote_addr,
+                                             is_client);
+  }
+
+  /* Also emit the legacy event format */
+  if (EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_CONNECTION_ENDED)) {
+    control_event_privcount_connection_ended(orconn,
+                                             created_str,
+                                             now_str,
+                                             remote_addr,
+                                             is_client);
+  }
 
   tor_free(now_str);
   tor_free(created_str);
-  tor_free(addr);
+  tor_free(remote_addr);
 }
 
 /* Send a PrivCount HSDir onion service descriptor cache storage event using
