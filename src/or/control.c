@@ -6934,6 +6934,40 @@ privcount_or_connection_chan_global_identifier(const or_connection_t *orconn)
   }
 }
 
+/* Return orconn's base channel bytes outbound (transmitted), or 0 if any
+ * pointer in the chain is NULL. */
+static uint64_t
+privcount_or_connection_chan_outbound_bytes(const or_connection_t *orconn)
+{
+  if (orconn) {
+    const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+    if (chan) {
+      return chan->n_bytes_xmitted;
+    } else {
+      return 0;
+    }
+  } else {
+    return 0;
+  }
+}
+
+/* Return orconn's base channel bytes inbound (received), or 0 if any
+ * pointer in the chain is NULL. */
+static uint64_t
+privcount_or_connection_chan_inbound_bytes(const or_connection_t *orconn)
+{
+  if (orconn) {
+    const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+    if (chan) {
+      return chan->n_bytes_recved;
+    } else {
+      return 0;
+    }
+  } else {
+    return 0;
+  }
+}
+
 /* Is start_tv strictly greater than the last time that PrivCount was enabled?
  * If it is, we should send this event, if not, we should ignore it.
  *
@@ -8559,6 +8593,12 @@ control_event_privcount_connection_close(const or_connection_t *orconn,
                          remote_addr);
 
   /* Add the additional counts that aren't in the legacy event */
+
+  smartlist_add_asprintf(fields, "InboundByteCount=%llu",
+                         privcount_or_connection_chan_inbound_bytes(orconn));
+
+  smartlist_add_asprintf(fields, "OutboundByteCount=%llu",
+                         privcount_or_connection_chan_outbound_bytes(orconn));
 
   /* At the time this connection was marked for close, how many connections
    * did we have from its remote address?
