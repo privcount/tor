@@ -8656,6 +8656,7 @@ control_event_privcount_connection_close(const or_connection_t *orconn,
     /* This is the IP address in the consensus (if any), or otherwise the
      * remote address */
     char *peer_addr = privcount_conn_or_peer_addr_to_str_dup(orconn);
+    tor_assert(peer_addr);
     privcount_cleanse_tagged_str(peer_addr);
     smartlist_add_asprintf(fields, "PeerIPAddress=%s",
                            peer_addr);
