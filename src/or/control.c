@@ -6625,6 +6625,8 @@ privcount_add_saturating(uint64_t a, uint64_t b)
 #define NO_CHANNEL_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_ADDRESS "0.0.0.0"
 #define NO_CONNECTION_HOST "no-host"
+#define NO_CONNECTION_COUNTRY "??"
+#define NO_GEOIP_COUNTRY "!!"
 
 /* Return a newly allocated string containing the remote address of chan,
  * or a placeholder if chan is NULL or has no connection.
@@ -6721,6 +6723,39 @@ privcount_conn_or_peer_addr_to_str_dup(const or_connection_t *orconn)
     }
   } else {
     return tor_strdup(NO_CONNECTION_ADDRESS);
+  }
+}
+
+/* Return a newly allocated string containing the country code for the remote
+ * address of orconn, (not the address claimed by the relay at the end of
+ * orconn) or a placeholder if orconn is NULL or has no address.
+ * The returned string must be freed using tor_free(). */
+static char *
+privcount_conn_or_real_addr_to_country_str_dup(const or_connection_t *orconn)
+{
+  /* Work out if we have a GeoIP database loaded.
+   * Tor always has one unknown country. */
+  if (geoip_get_n_countries() <= 1) {
+    return tor_strdup(NO_GEOIP_COUNTRY);
+  }
+  if (orconn) {
+    /* TO_CONN(orconn)->addr can be overwritten by the remote relay descriptor
+     * address */
+    if (!tor_addr_is_null(&orconn->real_addr)) {
+      int country_num = geoip_get_country_by_addr(&orconn->real_addr);
+      tor_assert(country_num >= INT16_MIN);
+      tor_assert(country_num <= INT16_MAX);
+      const char *country_name = geoip_get_country_name(country_num);
+      if (country_name && strlen(country_name) == 2) {
+        return tor_strdup(country_name);
+      } else {
+        return tor_strdup(NO_CONNECTION_COUNTRY);
+      }
+    } else {
+      return tor_strdup(NO_CONNECTION_COUNTRY);
+    }
+  } else {
+    return tor_strdup(NO_CONNECTION_COUNTRY);
   }
 }
 
@@ -8599,6 +8634,13 @@ control_event_privcount_connection_close(const or_connection_t *orconn,
 
   smartlist_add_asprintf(fields, "OutboundByteCount=%llu",
                          privcount_or_connection_chan_outbound_bytes(orconn));
+
+  /* Add the country code, looked up from Tor's GeoIP[v6]File.
+   * If no GeoIP[v6]File is configured, all country codes will be "??". */
+  char *ip_country = privcount_conn_or_real_addr_to_country_str_dup(orconn);
+  privcount_cleanse_tagged_str(ip_country);
+  smartlist_add_asprintf(fields, "RemoteCountryCode=%s", ip_country);
+  tor_free(ip_country);
 
   /* At the time this connection was marked for close, how many connections
    * did we have from its remote address?
