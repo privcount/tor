@@ -7003,6 +7003,40 @@ privcount_or_connection_chan_inbound_bytes(const or_connection_t *orconn)
   }
 }
 
+/* Return orconn's base channel circuits outbound (n_chan), or 0 if any
+ * pointer in the chain is NULL. */
+static uint64_t
+privcount_or_connection_chan_outbound_circuits(const or_connection_t *orconn)
+{
+  if (orconn) {
+    const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+    if (chan) {
+      return chan->total_n_circuits;
+    } else {
+      return 0;
+    }
+  } else {
+    return 0;
+  }
+}
+
+/* Return orconn's base channel circuits inbound (p_chan), or 0 if any
+ * pointer in the chain is NULL. */
+static uint64_t
+privcount_or_connection_chan_inbound_circuits(const or_connection_t *orconn)
+{
+  if (orconn) {
+    const channel_t *chan = TLS_CHAN_TO_BASE(orconn->chan);
+    if (chan) {
+      return chan->total_p_circuits;
+    } else {
+      return 0;
+    }
+  } else {
+    return 0;
+  }
+}
+
 /* Is start_tv strictly greater than the last time that PrivCount was enabled?
  * If it is, we should send this event, if not, we should ignore it.
  *
@@ -8634,6 +8668,12 @@ control_event_privcount_connection_close(const or_connection_t *orconn,
 
   smartlist_add_asprintf(fields, "OutboundByteCount=%llu",
                          privcount_or_connection_chan_outbound_bytes(orconn));
+
+  smartlist_add_asprintf(fields, "InboundCircuitCount=%llu",
+                     privcount_or_connection_chan_inbound_circuits(orconn));
+
+  smartlist_add_asprintf(fields, "OutboundCircuitCount=%llu",
+                     privcount_or_connection_chan_outbound_circuits(orconn));
 
   /* Add the country code, looked up from Tor's GeoIP[v6]File.
    * If no GeoIP[v6]File is configured, all country codes will be "??". */

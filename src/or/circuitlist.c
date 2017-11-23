@@ -273,8 +273,10 @@ circuit_set_circid_chan_helper(circuit_t *circ, int direction,
   /* Adjust circuit counts on new channel */
   if (direction == CELL_DIRECTION_OUT) {
     ++chan->num_n_circuits;
+    ++chan->total_n_circuits;
   } else {
     ++chan->num_p_circuits;
+    ++chan->total_p_circuits;
   }
 }
 

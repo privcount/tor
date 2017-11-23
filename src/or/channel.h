@@ -204,6 +204,9 @@ struct channel_s {
   /** For how many circuits are we n_chan?  What about p_chan? */
   unsigned int num_n_circuits, num_p_circuits;
 
+  /** For how many circuits have we ever been n_chan?  What about p_chan? */
+  uint64_t total_n_circuits, total_p_circuits;
+
   /**
    * True iff this channel shouldn't get any new circs attached to it,
    * because the connection is too old, or because there's a better one.
