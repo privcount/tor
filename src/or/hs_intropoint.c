@@ -192,7 +192,7 @@ handle_verified_establish_intro_cell(or_circuit_t *circ,
   /* Then notify the hidden service that the intro point is established by
      sending an INTRO_ESTABLISHED cell */
   if (hs_intro_send_intro_established_cell(circ)) {
-    log_warn(LD_BUG, "Couldn't send INTRO_ESTABLISHED cell.");
+    log_warn(LD_PROTOCOL, "Couldn't send INTRO_ESTABLISHED cell.");
     return -1;
   }
 
@@ -256,15 +256,16 @@ handle_establish_intro(or_circuit_t *circ, const uint8_t *request,
     goto err;
   }
 
-  log_warn(LD_GENERAL, "Established prop224 intro point on circuit %" PRIu32,
-           circ->p_circ_id);
-
   /* We are done! */
   retval = 0;
   goto done;
 
  err:
-  circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_TORPROTOCOL);
+  /* When sending the intro establish ack, on error the circuit can be marked
+   * as closed so avoid a double close. */
+  if (!TO_CIRCUIT(circ)->marked_for_close) {
+    circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_TORPROTOCOL);
+  }
 
  done:
   hs_cell_establish_intro_free(parsed_cell);
@@ -495,7 +496,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
   if (relay_send_command_from_edge(CONTROL_CELL_ID, TO_CIRCUIT(service_circ),
                                    RELAY_COMMAND_INTRODUCE2,
                                    (char *) request, request_len, NULL)) {
-    log_warn(LD_REND, "Unable to send INTRODUCE2 cell to the service.");
+    log_warn(LD_PROTOCOL, "Unable to send INTRODUCE2 cell to the service.");
     /* Inform the client that we can't relay the cell. */
     status = HS_INTRO_ACK_STATUS_CANT_RELAY;
     goto send_ack;
@@ -508,8 +509,8 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
  send_ack:
   /* Send INTRODUCE_ACK or INTRODUCE_NACK to client */
   if (send_introduce_ack_cell(client_circ, status) < 0) {
-    log_warn(LD_REND, "Unable to send an INTRODUCE ACK status %d to client.",
-             status);
+    log_warn(LD_PROTOCOL, "Unable to send an INTRODUCE ACK status %d "
+                          "to client.", status);
     /* Circuit has been closed on failure of transmission. */
     goto done;
   }

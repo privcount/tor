@@ -740,7 +740,8 @@ node_is_possible_guard(const node_t *node)
           node->is_stable &&
           node->is_fast &&
           node->is_valid &&
-          node_is_dir(node));
+          node_is_dir(node) &&
+          !router_digest_is_me(node->identity));
 }
 
 /**
@@ -2372,7 +2373,7 @@ entry_guards_upgrade_waiting_circuits(guard_selection_t *gs,
 
   SMARTLIST_FOREACH_BEGIN(all_circuits, origin_circuit_t *, circ) {
     circuit_guard_state_t *state = origin_circuit_get_guard_state(circ);
-    if BUG((state == NULL))
+    if (BUG(state == NULL))
       continue;
 
     if (state->state == GUARD_CIRC_STATE_WAITING_FOR_BETTER_GUARD) {
