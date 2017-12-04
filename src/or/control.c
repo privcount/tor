@@ -8671,16 +8671,16 @@ control_event_privcount_connection_close(const or_connection_t *orconn,
 
   /* Add the additional counts that aren't in the legacy event */
 
-  smartlist_add_asprintf(fields, "InboundByteCount=%llu",
+  smartlist_add_asprintf(fields, "InboundByteCount=%" PRIu64,
                          privcount_or_connection_chan_inbound_bytes(orconn));
 
-  smartlist_add_asprintf(fields, "OutboundByteCount=%llu",
+  smartlist_add_asprintf(fields, "OutboundByteCount=%" PRIu64,
                          privcount_or_connection_chan_outbound_bytes(orconn));
 
-  smartlist_add_asprintf(fields, "InboundCircuitCount=%llu",
+  smartlist_add_asprintf(fields, "InboundCircuitCount=%" PRIu64,
                      privcount_or_connection_chan_inbound_circuits(orconn));
 
-  smartlist_add_asprintf(fields, "OutboundCircuitCount=%llu",
+  smartlist_add_asprintf(fields, "OutboundCircuitCount=%" PRIu64,
                      privcount_or_connection_chan_outbound_circuits(orconn));
 
   /* Add the country code, looked up from Tor's GeoIP[v6]File.
