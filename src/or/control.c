@@ -6606,14 +6606,12 @@ privcount_is_client(const channel_t* chan)
   int is_client = privcount_is_unauthenticated_client(chan);
 
   /* Relays in the consensus should always authenticate their peer IDs with us
-   */
-  if (is_relay) {
-    /* TODO: make this a protocol warning: if our code is correct, it is the
-     * other side that is misbehaving */
-    tor_assert_nonfatal(!is_client);
-  }
+   * but if they don't, they are the ones who are misbehaving. So we can't
+   * assert that is_client != is_relay. */
 
-  /* is_client is more reliable, but only with the fix for Tor bug 21406 */
+  /* is_client is more reliable, but occasionally relays fail to authenticate
+   * for some reason. Maybe the connection fails before the handshake
+   * completes? */
   return is_client && !is_relay;
 }
 
@@ -7694,7 +7692,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
    * and the circuit was actually used, otherwise one might be true,
    * depending on whether the client told us what it wanted the circuit for
    */
-  if (is_end && BUG(is_exit + is_dir + is_hsdir + is_intro + is_rend > 1)) {
+  if (is_end && BUG(is_dir + is_hsdir + is_intro + is_rend > 1)) {
     log_warn(LD_BUG, "Bad %s%sEnd IsExit: %d, IsDir: %d, IsHSDir: %d, "
              "IsIntro: %d, IsRend: %d",
              prefix, *prefix ? "" : " ",
