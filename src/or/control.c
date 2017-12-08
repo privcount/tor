@@ -5858,7 +5858,7 @@ control_event_bandwidth_used(uint32_t n_read, uint32_t n_written)
 }
 
 /* PrivCount macros */
-#define PRIVCOUNT_VERSION_STRING "1.1.0"
+#define PRIVCOUNT_VERSION_STRING "2.0.0"
 
 /* PrivCount static declarations */
 static int privcount_is_client(const channel_t *chan);
