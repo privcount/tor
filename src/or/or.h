@@ -1658,6 +1658,10 @@ typedef struct edge_connection_t {
    * that's going away and being used on channels instead.  We still tag
    * edge connections with dirreq_id from circuits, so it's copied here. */
   uint64_t dirreq_id;
+
+  /* The number of the stream on the circuit. Starts at 1.
+   * 0 for non-exit streams. */
+  uint64_t privcount_circuit_exit_stream_number;
 } edge_connection_t;
 
 /** Subtype of edge_connection_t for an "entry connection" -- that is, a SOCKS

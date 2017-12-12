@@ -3212,6 +3212,10 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
   /* The 'AF_INET' here is temporary; we might need to change it later in
    * connection_exit_connect(). */
   n_stream = edge_connection_new(CONN_TYPE_EXIT, AF_INET);
+  if (or_circ && !bcell.is_begindir) {
+    n_stream->privcount_circuit_exit_stream_number =
+        or_circ->privcount_n_exit_streams;
+  }
 
   /* Remember the tunneled request ID in the new edge connection, so that
    * we can measure download times. */

@@ -6966,6 +6966,19 @@ privcount_edge_connection_n_exit_bytes_outbound(
   }
 }
 
+/* Return exitconn->privcount_circuit_exit_stream_number, or 0 if exitconn is
+ * NULL. */
+static uint64_t
+privcount_edge_connection_circuit_exit_stream_number(
+                                            const edge_connection_t *exitconn)
+{
+  if (exitconn) {
+    return exitconn->privcount_circuit_exit_stream_number;
+  } else {
+    return 0;
+  }
+}
+
 /* Return orconn's base channel TLS global idenfitier, or 0 if any pointer in
  * the chain is NULL. */
 static uint64_t
@@ -7501,7 +7514,7 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   send_control_event(EVENT_PRIVCOUNT_STREAM_ENDED,
                      "650 PRIVCOUNT_STREAM_ENDED %" PRIu64 " %" PRIu32
                      " %" PRIu16 " %" PRIu16 " %" PRIu64 " %" PRIu64
-                     " %s %s %s %s\r\n",
+                     " %s %s %s %s %" PRIu64 "\r\n",
                      privcount_or_circuit_p_chan_global_identifier(orcirc),
                      privcount_or_circuit_p_circ_id(orcirc),
                      privcount_edge_connection_stream_id(exitconn),
@@ -7511,7 +7524,9 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
                      created_str,
                      now_str,
                      host_str,
-                     addr_str);
+                     addr_str,
+                     privcount_edge_connection_circuit_exit_stream_number(
+                                                                    exitconn));
 
   tor_free(now_str);
   tor_free(created_str);
