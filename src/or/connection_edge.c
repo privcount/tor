@@ -3144,7 +3144,7 @@ connection_exit_begin_conn(cell_t *cell, circuit_t *circ)
     port = bcell.port;
 
     if (or_circ) {
-      or_circ->privcount_circuit_exit = 1;
+      or_circ->privcount_n_exit_streams++;
     }
 
     if (or_circ && or_circ->p_chan) {

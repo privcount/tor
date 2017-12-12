@@ -3427,10 +3427,6 @@ typedef struct or_circuit_t {
    * have to track whether PrivCount was enabled on the rend splice and
    * intro tap before providing their information. */
 
-  /** We can't find exit circuits whose streams have closed unless we tag them
-   * ourselves. */
-  unsigned int privcount_circuit_exit : 1;
-
   /** Has this circuit received a create cell? */
   unsigned int privcount_circuit_has_received_create_cell : 1;
 
@@ -3502,6 +3498,11 @@ typedef struct or_circuit_t {
   /* Counts server directory bytes */
   uint64_t privcount_n_dir_bytes_inbound;
   uint64_t privcount_n_dir_bytes_outbound;
+
+  /* Count all exit stream requests ever made on this circuit.
+   * There can only be 2**16 streams on a circuit at once, so this is very
+   * unlikely to overflow. */
+  uint64_t privcount_n_exit_streams;
 } or_circuit_t;
 
 #if REND_COOKIE_LEN != DIGEST_LEN

@@ -6263,6 +6263,18 @@ privcount_circuit_failure_reason(const or_circuit_t *orcirc)
   return orcirc->privcount_circuit_failure_reason;
 }
 
+/* If orcirc is not NULL, returns the number of exit stream requests on the
+ * circuit. Otherwise, returns 0. */
+static uint64_t
+privcount_circuit_exit_stream_count(const or_circuit_t *orcirc)
+{
+  if (!orcirc) {
+    return 0;
+  }
+
+  return orcirc->privcount_n_exit_streams;
+}
+
 /* Set the client sink fields in client_orcirc from service_orcirc */
 void
 privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
@@ -6434,11 +6446,7 @@ privcount_data_is_exit(const edge_connection_t* exitconn,
 {
   const or_circuit_t* oc = privcount_get_exit_const_or_circ(exitconn, orcirc);
 
-  if (oc) {
-    return oc->privcount_circuit_exit;
-  }
-
-  return 0;
+  return privcount_circuit_exit_stream_count(oc) > 0;
 }
 
 /* Should PrivCount send events and update byte and cell counts from this
@@ -7639,6 +7647,7 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
   const int onion_handshake_type = privcount_circuit_onion_handshake_type(
                                                                        orcirc);
   const char *failure_reason = privcount_circuit_failure_reason(orcirc);
+  uint64_t exit_stream_count = privcount_circuit_exit_stream_count(orcirc);
 
   /* Extra Circuit flags */
 
@@ -7791,6 +7800,11 @@ privcount_add_circuit_common_fields(smartlist_t *fields,
     smartlist_add_asprintf(fields, "%sFailureReasonString=%s",
                            prefix, clean_str);
     tor_free(clean_str);
+  }
+
+  if (exit_stream_count > 0) {
+    smartlist_add_asprintf(fields, "%sExitStreamCount=%" PRIu64,
+                           prefix, exit_stream_count);
   }
 
   privcount_add_circuit_id_fields(fields, circ, prefix);
@@ -8278,7 +8292,7 @@ control_event_privcount_circuit_close(circuit_t *circ,
 
   const or_circuit_t *orcirc = privcount_to_const_or_circ(circ);
 
-    /* Collect all the fields in a smartlist */
+  /* Collect all the fields in a smartlist */
   smartlist_t *fields = smartlist_new();
 
   /* Use generic names so coding the injector is easier */
