@@ -7379,10 +7379,13 @@ control_event_privcount_dns_resolved(const edge_connection_t *exitconn,
   /* Filter out DNS events for circuits or exit connections that started
    * before this collection round */
   const or_options_t* options = get_options();
-  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv,
-                                    options) ||
-      !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+  if (exitconn && !privcount_was_enabled_before(
+                                    &exitconn->base_.timestamp_created_tv,
                                     options)) {
+    return;
+  }
+  if (orcirc && !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+                                              options)) {
     return;
   }
 
@@ -7436,10 +7439,13 @@ control_event_privcount_stream_bytes_transferred(
   /* Filter out bandwidth events for circuits or exit connections that started
    * before this collection round */
   const or_options_t* options = get_options();
-  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv,
-                                    options) ||
-      !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
-                                    options)) {
+  if (exitconn && !privcount_was_enabled_before(
+                                        &exitconn->base_.timestamp_created_tv,
+                                        options)) {
+    return;
+  }
+  if (orcirc && !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+                                              options)) {
     return;
   }
 
@@ -7493,10 +7499,13 @@ control_event_privcount_stream_ended(const edge_connection_t *exitconn)
   /* Filter out stream events for circuits or exit connections that started
    * before this collection round */
   const or_options_t* options = get_options();
-  if (!privcount_was_enabled_before(&exitconn->base_.timestamp_created_tv,
-                                    options) ||
-      !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
-                                    options)) {
+  if (exitconn && !privcount_was_enabled_before(
+                                      &exitconn->base_.timestamp_created_tv,
+                                      options)) {
+    return;
+  }
+  if (orcirc && !privcount_was_enabled_before(&orcirc->base_.timestamp_created,
+                                              options)) {
     return;
   }
 
@@ -7894,7 +7903,7 @@ control_event_privcount_circuit_cell(const channel_t *chan,
    * fields in the event. Most clients will want to filter NULL circuits out
    * as well. */
   if (circ && !privcount_was_enabled_before(&circ->timestamp_created,
-                                    get_options())) {
+                                            get_options())) {
     return;
   }
 
@@ -8507,8 +8516,8 @@ control_event_privcount_circuit(circuit_t *circ,
 
   /* Filter out circuit events for circuits that started before this
    * collection round */
-  if (!privcount_was_enabled_before(&circ->timestamp_created,
-                                    get_options())) {
+  if (circ && !privcount_was_enabled_before(&circ->timestamp_created,
+                                            get_options())) {
     return;
   }
 
