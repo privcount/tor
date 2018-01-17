@@ -1194,10 +1194,11 @@ static const struct control_event_t control_event_table[] = {
   { EVENT_PRIVCOUNT_CIRCUIT_ENDED, "PRIVCOUNT_CIRCUIT_ENDED" },
   { EVENT_PRIVCOUNT_CONNECTION_ENDED, "PRIVCOUNT_CONNECTION_ENDED" },
   /* These events are in tagged format */
-  /* These events are HSDir events */
+  /* These events are HSDir events.
+   * There is no filtering on the Tor side. */
   { EVENT_PRIVCOUNT_HSDIR_CACHE_STORE, "PRIVCOUNT_HSDIR_CACHE_STORE" },
+  { EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH, "PRIVCOUNT_HSDIR_CACHE_FETCH" },
   /*
-   * { EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH, "PRIVCOUNT_HSDIR_CACHE_FETCH" },
    * { EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH, "PRIVCOUNT_HSDIR_CACHE_EVICT" },
    */
   /* These events are position-independent events.
@@ -7254,9 +7255,12 @@ privcount_cleanse_tagged_str_dup(const char *str)
  * (including intro points encrypted with client auth), or if the number of
  * intro points is invalid.
  * Returns an empty smartlist if the descriptor is valid, but has no intro
- * point section. */
+ * point section.
+ * If intro_size_out is not NULL, returns the encoded intro point size in
+ * *intro_size_out. If the descriptor is unparseable, return -1 in
+ * *intro_size_out. */
 static smartlist_t *
-privcount_parse_hs_v2_intro_points(const char *desc)
+privcount_parse_hs_v2_intro_points(const char *desc, ssize_t *intro_size_out)
 {
   /* See rend_cache_store_v2_desc_as_dir() for the original code */
   rend_service_descriptor_t *parsed = NULL;
@@ -7269,6 +7273,10 @@ privcount_parse_hs_v2_intro_points(const char *desc)
 
   smartlist_t *intro_points = NULL;
 
+  if (intro_size_out) {
+    *intro_size_out = -1;
+  }
+
   /* If we're called from rend_cache_store_v2_desc_as_dir(), we re-parse the
    * descriptor. That's ok. */
   if (rend_parse_v2_service_descriptor(&parsed, desc_id, &intro_content,
@@ -7278,6 +7286,10 @@ privcount_parse_hs_v2_intro_points(const char *desc)
     /* Check sizes are reasonable */
     tor_assert(encoded_size <= SSIZE_MAX);
     tor_assert(intro_size <= SSIZE_MAX);
+
+    if (intro_size_out) {
+      *intro_size_out = intro_size;
+    }
 
     /* Make sure there aren't any intro points before we parse them */
     tor_assert_nonfatal(!parsed->intro_nodes);
@@ -9084,7 +9096,7 @@ control_event_privcount_hsdir_cache_store(
       /* zero means: no intro point section in a valid descriptor.
        * NULL means: invalid descriptor or invalid or encrypted intro point
        * section. */
-      intro_points = privcount_parse_hs_v2_intro_points(hsv2_desc_body);
+      intro_points = privcount_parse_hs_v2_intro_points(hsv2_desc_body, NULL);
 
       if (intro_points) {
         /* Keep the intro point count for RequiresClientAuthFlag */
@@ -9175,6 +9187,236 @@ control_event_privcount_hsdir_cache_store(
 
   send_control_event(EVENT_PRIVCOUNT_HSDIR_CACHE_STORE,
                      "650 PRIVCOUNT_HSDIR_CACHE_STORE %s\r\n",
+                     event_string);
+
+  tor_free(event_string);
+  SMARTLIST_FOREACH(fields, char *, f, tor_free(f));
+  smartlist_free(fields);
+}
+
+/* Send a PrivCount HSDir onion service descriptor cache fetch event using
+ * the supplied arguments.
+ * This event uses tagged parameters: each field is preceded by 'FieldName='.
+ * Order is unimportant. Unknown fields are left out.
+ * Signed types use -1 for unknown (including time_t), except for
+ * hs_version_number, which must be either 2 or 3.
+ * Strings use NULL for unknown or not applicable. Strings must not contain
+ * spaces or equals signs. (If they do, the string is truncated at the first
+ * space or equals sign.) */
+void
+control_event_privcount_hsdir_cache_fetch(
+                            int hs_version_number,
+                            int has_cache_entry_flag,
+                            ssize_t cache_query_byte_count,
+                            const char *cache_reason_string,
+                            const char *desc_id_base32,
+                            const rend_service_descriptor_t *hsv2_desc,
+                            const char *hsv2_desc_body,
+                            time_t hsv2_last_served_time,
+                            const char *blinded_pubkey_base64,
+                            const hs_cache_dir_descriptor_t *hsv3_desc,
+                            time_t hsv3_cache_created_time,
+                            ssize_t encoded_descriptor_byte_count,
+                            ssize_t encoded_intro_point_byte_count)
+{
+  /* Just in case */
+  if (!get_options()->EnablePrivCount) {
+    return;
+  }
+
+  if (!EVENT_IS_INTERESTING(EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH)) {
+    return;
+  }
+
+  /* We don't know how to handle other HS versions */
+  tor_assert(hs_version_number == HS_VERSION_TWO ||
+             hs_version_number == HS_VERSION_THREE);
+
+  /* We have no way to find a circuit id for this download, or filter out
+   * downloads that started before this collection round, but that's ok,
+   * because downloading a descriptor should be fast. */
+
+  /* Collect all the fields in a smartlist */
+  smartlist_t *fields = smartlist_new();
+
+  /* Now process each field.
+   * Try to keep related fields together.
+   * Field order is not guaranteed: these fields can be re-ordered as needed.
+   * But it will annoy parsers that mistakenly depend on event order. */
+
+  smartlist_add_asprintf(fields, "HiddenServiceVersionNumber=%d",
+                         hs_version_number);
+
+  /* Process the other mandatory fields */
+
+  smartlist_add(fields,
+                privcount_timeval_now_to_epoch_str_dup("EventTimestamp="));
+
+  /* Process the common cache fields */
+
+    if (has_cache_entry_flag >= 0) {
+    smartlist_add_asprintf(fields, "HasCacheEntryFlag=%d",
+                           has_cache_entry_flag);
+  }
+
+  tor_assert_nonfatal(cache_reason_string);
+  if (cache_reason_string) {
+    char *clean_str = privcount_cleanse_tagged_str_dup(cache_reason_string);
+    smartlist_add_asprintf(fields, "CacheReasonString=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  if (cache_query_byte_count != -1) {
+    smartlist_add_asprintf(fields, "CacheQueryByteCount=%zd",
+                           cache_query_byte_count);
+  }
+
+  if (hsv2_last_served_time != -1) {
+    smartlist_add_asprintf(fields, "CacheLastServedTime=%" PRIi64,
+                           (int64_t)hsv2_last_served_time);
+  }
+
+  if (hsv3_cache_created_time != -1) {
+    smartlist_add_asprintf(fields, "CacheCreatedTime=%" PRIi64,
+                           (int64_t)hsv3_cache_created_time);
+  }
+
+  /* Process the common descriptor fields */
+
+  /* This is not the onion address. You will be sad if you think it is. */
+  if (desc_id_base32) {
+    /* v3 descriptors have a desc id, but we would have to calculate it
+     * ourselves, so it's not yet implemented. */
+    char *clean_str = privcount_cleanse_tagged_str_dup(desc_id_base32);
+    smartlist_add_asprintf(fields, "DescriptorIdBase32String=%s",
+                           clean_str);
+    tor_free(clean_str);
+  }
+
+  /* Process the HSv2 fields */
+
+  if (hsv2_desc) {
+    /* copied from handle_control_hspost() */
+    char serviceid[REND_SERVICE_ID_LEN_BASE32+1];
+    if (hsv2_desc->pk && !rend_get_service_id(hsv2_desc->pk, serviceid)) {
+      privcount_cleanse_tagged_str(serviceid);
+      smartlist_add_asprintf(fields, "OnionAddress=%s",
+                             serviceid);
+    }
+
+/* We don't support time_t with a larger range than int64_t */
+#if SIZEOF_TIME_T > 8
+#error time_t too large for int64_t
+#elif SIZEOF_TIME_T == 8
+    tor_assert(TIME_MIN < 0);
+#endif
+
+    smartlist_add_asprintf(fields, "DescriptorCreationTime=%" PRIi64,
+                           (int64_t)hsv2_desc->timestamp);
+
+    int intro_point_count = -1;
+
+    if (hsv2_desc_body) {
+      /* Parse the intro points */
+      smartlist_t *intro_points;
+      /* zero means: no intro point section in a valid descriptor.
+       * NULL means: invalid descriptor or invalid or encrypted intro point
+       * section. */
+      intro_points = privcount_parse_hs_v2_intro_points(
+                                            hsv2_desc_body,
+                                            &encoded_intro_point_byte_count);
+
+      if (intro_points) {
+        /* Keep the intro point count for RequiresClientAuthFlag */
+        intro_point_count = smartlist_len(intro_points);
+
+        smartlist_add_asprintf(fields, "IntroPointCount=%d",
+                               intro_point_count);
+
+        /* Add the intro point fingerprints to the event */
+        char *fingerprints = privcount_list_hs_v2_intro_point_fingerprints(
+                                                                intro_points);
+        /* We don't need to check if the string is clean, because the
+         * individual fingerprints are hex strings, and they are separated by
+         * commas. */
+        smartlist_add_asprintf(fields, "IntroPointFingerprintList=%s",
+                               fingerprints);
+
+        /* Clean up */
+        tor_free(fingerprints);
+        privcount_free_hs_v2_intro_points(intro_points);
+      }
+    }
+
+    /* If there's no intro point data, we just don't know whether client
+     * auth is being used or not */
+    int requires_client_auth_flag = -1;
+
+    /* If there is intro point data, and we couldn't parse it, assume that's
+     * because the descriptor uses client auth */
+    if (encoded_intro_point_byte_count > 0 && intro_point_count < 0) {
+      requires_client_auth_flag = 1;
+    }
+
+    /* If we parsed the intro points, that's because the descriptor doesn't
+     * use client auth */
+    if (intro_point_count >= 0) {
+      requires_client_auth_flag = 0;
+    }
+
+    if (requires_client_auth_flag >= 0) {
+      smartlist_add_asprintf(fields, "RequiresClientAuthFlag=%d",
+                             requires_client_auth_flag);
+    }
+
+#if REND_PROTOCOL_VERSION_BITMASK_WIDTH > 16
+#error REND_PROTOCOL_VERSION_BITMASK_WIDTH is too large for int16_t
+#endif
+
+    smartlist_add_asprintf(fields, "SupportedProtocolBitfield=0x%" PRIx16,
+                           (int16_t)hsv2_desc->protocols);
+  }
+
+  /* This is not the onion address. You will be sad if you think it is. */
+  if (blinded_pubkey_base64) {
+    /* Strip off the trailing padding */
+    char *cleansed_string = privcount_cleanse_tagged_str_dup(
+                                                      blinded_pubkey_base64);
+    smartlist_add_asprintf(fields, "BlindedEd25519PublicKeyBase64String=%s",
+                           cleansed_string);
+    tor_free(cleansed_string);
+  }
+
+  /* Process the HSv3 fields */
+  if (hsv3_desc) {
+    smartlist_add_asprintf(fields, "RevisionNumber=%" PRIu64,
+                           hsv3_desc->plaintext_data->revision_counter);
+
+    smartlist_add_asprintf(fields, "DescriptorLifetime=%" PRIu32,
+                           hsv3_desc->plaintext_data->lifetime_sec);
+  }
+
+  /* Process the common size fields */
+
+  if (encoded_descriptor_byte_count >= 0) {
+    smartlist_add_asprintf(fields, "EncodedDescriptorByteCount=%zd",
+                           encoded_descriptor_byte_count);
+  }
+
+  if (encoded_intro_point_byte_count >= 0) {
+    smartlist_add_asprintf(fields, "EncodedIntroPointByteCount=%zd",
+                           encoded_intro_point_byte_count);
+  }
+
+  size_t len = 0;
+  char *event_string = smartlist_join_strings(fields, " ", 0, &len);
+  tor_assert(event_string);
+  /* Some fields are mandatory, so the string will never be empty */
+  tor_assert(len > 0);
+
+  send_control_event(EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH,
+                     "650 PRIVCOUNT_HSDIR_CACHE_FETCH %s\r\n",
                      event_string);
 
   tor_free(event_string);

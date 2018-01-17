@@ -242,13 +242,39 @@ cache_lookup_v3_as_dir(const char *query, const char **desc_out)
   int found = 0;
   ed25519_public_key_t blinded_key;
   const hs_cache_dir_descriptor_t *entry;
+  size_t query_size = 0;
 
   tor_assert(query);
+
+  /* Find the size of the query */
+  if (get_options()->EnablePrivCount) {
+    query_size = strlen(query);
+    tor_assert(query_size <= SSIZE_MAX);
+  }
 
   /* Decode blinded key using the given query value. */
   if (ed25519_public_from_base64(&blinded_key, query) < 0) {
     log_info(LD_REND, "Unable to decode the v3 HSDir query %s.",
              safe_str_client(query));
+
+    control_event_privcount_hsdir_cache_fetch(
+                                    HS_VERSION_THREE,
+                                    /* cache info */
+                                    -1, /* has_cache_entry */
+                                    query_size,
+                                    "unparseable", /* cache reason */
+                                    /* descriptor info */
+                                    NULL, /* don't know desc id */
+                                    NULL, /* not v2 */
+                                    NULL, /* not v2 */
+                                    -1,   /* not v2 */
+                                    NULL, /* don't risk untrusted data */
+                                    NULL, /* don't know desc */
+                                    -1,   /* don't know desc */
+                                    -1,   /* don't know desc */
+                                    -1    /* don't know desc */
+                                    );
+
     goto err;
   }
 
@@ -258,6 +284,50 @@ cache_lookup_v3_as_dir(const char *query, const char **desc_out)
     if (desc_out) {
       *desc_out = entry->encoded_desc;
     }
+
+    /* Find the size of the descriptor */
+    size_t encoded_size = 0;
+    if (get_options()->EnablePrivCount) {
+      tor_assert(entry->plaintext_data->superencrypted_blob_size <= SSIZE_MAX);
+      encoded_size = strlen(entry->encoded_desc);
+      tor_assert(encoded_size <= SSIZE_MAX);
+    }
+
+    control_event_privcount_hsdir_cache_fetch(
+                              HS_VERSION_THREE,
+                              /* cache info */
+                              1, /* has_cache_entry */
+                              query_size,
+                              "cached",
+                              /* descriptor info */
+                              NULL,  /* haven't implemented desc id */
+                              NULL,  /* not v2 */
+                              NULL,  /* not v2 */
+                              -1,    /* not v2 */
+                              query, /* blinded service key */
+                              entry, /* cached descriptor */
+                              entry->created_ts,
+                              encoded_size,
+                              entry->plaintext_data->superencrypted_blob_size
+                              );
+  } else {
+    control_event_privcount_hsdir_cache_fetch(
+                                    HS_VERSION_THREE,
+                                    /* cache info */
+                                    0, /* has_cache_entry */
+                                    query_size,
+                                    "uncached", /* cache reason */
+                                    /* descriptor info */
+                                    NULL,  /* don't know desc id */
+                                    NULL,  /* not v2 */
+                                    NULL,  /* not v2 */
+                                    -1,    /* not v2 */
+                                    query, /* blinded service key */
+                                    NULL,  /* don't know desc */
+                                    -1,    /* don't know desc */
+                                    -1,    /* don't know desc */
+                                    -1     /* don't know desc */
+                                    );
   }
 
   return found;

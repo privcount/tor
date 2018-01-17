@@ -592,21 +592,89 @@ rend_cache_lookup_v2_desc_as_dir(const char *desc_id, const char **desc)
   rend_cache_entry_t *e;
   char desc_id_digest[DIGEST_LEN];
   tor_assert(rend_cache_v2_dir);
+  size_t query_size = 0;
+
+  /* Find the size of the query */
+  if (get_options()->EnablePrivCount) {
+    tor_assert(desc_id);
+    query_size = strlen(desc_id);
+    tor_assert(query_size <= SSIZE_MAX);
+  }
+
   if (base32_decode(desc_id_digest, DIGEST_LEN,
                     desc_id, REND_DESC_ID_V2_LEN_BASE32) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_REND,
            "Rejecting v2 rendezvous descriptor request -- descriptor ID "
            "contains illegal characters: %s",
            safe_str(desc_id));
+
+    /* This is probably unreachable, because the caller checks for bad chars */
+    control_event_privcount_hsdir_cache_fetch(
+                                          HS_VERSION_TWO,
+                                          /* cache info */
+                                          -1, /* has_cache_entry */
+                                          query_size,
+                                          "unparseable", /* cache reason */
+                                          /* descriptor info */
+                                          NULL, /* don't risk untrusted data */
+                                          NULL, /* don't know desc */
+                                          NULL, /* don't know desc */
+                                          -1,   /* don't know desc */
+                                          NULL, /* not v3 */
+                                          NULL, /* not v3 */
+                                          -1,   /* not v3 */
+                                          -1,   /* don't know desc */
+                                          -1    /* don't know desc */
+                                          );
+
     return -1;
   }
   /* Lookup descriptor and return. */
   e = digestmap_get(rend_cache_v2_dir, desc_id_digest);
   if (e) {
     *desc = e->desc;
+
+    control_event_privcount_hsdir_cache_fetch(
+                                              HS_VERSION_TWO,
+                                              /* cache info */
+                                              1, /* has_cache_entry */
+                                              query_size,
+                                              "cached", /* cache reason */
+                                              /* descriptor info */
+                                              desc_id, /* base32 */
+                                              e->parsed,
+                                              e->desc,
+                                              e->last_served,
+                                              NULL,    /* not v3 */
+                                              NULL,    /* not v3 */
+                                              -1,      /* not v3 */
+                                              e->len,
+                                              -1       /* parsed in function */
+                                              );
+
     e->last_served = approx_time();
     return 1;
+
+  } else {
+    control_event_privcount_hsdir_cache_fetch(
+                                              HS_VERSION_TWO,
+                                              /* cache info */
+                                              0, /* has_cache_entry */
+                                              query_size,
+                                              "uncached", /* cache reason */
+                                              /* descriptor info */
+                                              desc_id, /* base32 */
+                                              NULL, /* don't know desc */
+                                              NULL, /* don't know desc */
+                                              -1,   /* don't know desc */
+                                              NULL, /* not v3 */
+                                              NULL, /* not v3 */
+                                              -1,   /* not v3 */
+                                              -1,   /* don't know desc */
+                                              -1    /* don't know desc */
+                                              );
   }
+
   return 0;
 }
 

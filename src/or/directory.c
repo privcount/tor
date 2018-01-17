@@ -4821,6 +4821,7 @@ handle_get_hs_descriptor_v2(dir_connection_t *conn,
     /* Handle v2 rendezvous descriptor fetch request. */
     const char *descp;
     const char *query = url + strlen("/tor/rendezvous2/");
+
     if (rend_valid_descriptor_id(query)) {
       log_info(LD_REND, "Got a v2 rendezvous descriptor request for ID '%s'",
                safe_str(escaped(query)));
@@ -4838,11 +4839,63 @@ handle_get_hs_descriptor_v2(dir_connection_t *conn,
       }
     } else { /* not well-formed */
       write_short_http_response(conn, 400, "Bad request");
+
+      size_t query_size = 0;
+      if (get_options()->EnablePrivCount) {
+        /* Find the size of the query */
+        query_size = strlen(query);
+        tor_assert(query_size <= SSIZE_MAX);
+      }
+
+      control_event_privcount_hsdir_cache_fetch(
+                                    HS_VERSION_TWO,
+                                    /* cache info */
+                                    -1, /* has_cache_entry */
+                                    query_size,
+                                    "unparseable", /* cache reason */
+                                    /* descriptor info */
+                                    NULL, /* don't risk untrusted data */
+                                    NULL, /* don't know desc */
+                                    NULL, /* don't know desc */
+                                    -1,   /* don't know desc */
+                                    NULL, /* not v3 */
+                                    NULL, /* not v3 */
+                                    -1,   /* not v3 */
+                                    -1,   /* don't know desc */
+                                    -1    /* don't know desc */
+                                    );
     }
     goto done;
   } else {
     /* Not encrypted! */
     write_short_http_response(conn, 404, "Not found");
+
+    size_t query_size = 0;
+    if (get_options()->EnablePrivCount) {
+      tor_assert(url);
+      const char *query = url + strlen("/tor/rendezvous2/");
+      /* Find the size of the query */
+      query_size = strlen(query);
+      tor_assert(query_size <= SSIZE_MAX);
+    }
+
+    control_event_privcount_hsdir_cache_fetch(
+                                    HS_VERSION_TWO,
+                                    /* cache info */
+                                    -1, /* has_cache_entry */
+                                    query_size,
+                                    "unencrypted", /* cache reason */
+                                    /* descriptor info */
+                                    NULL, /* don't risk untrusted data */
+                                    NULL, /* don't know desc */
+                                    NULL, /* don't know desc */
+                                    -1,   /* don't know desc */
+                                    NULL, /* not v3 */
+                                    NULL, /* not v3 */
+                                    -1,   /* not v3 */
+                                    -1,   /* don't know desc */
+                                    -1    /* don't know desc */
+                                    );
   }
  done:
   return 0;
@@ -4862,6 +4915,40 @@ handle_get_hs_descriptor_v3(dir_connection_t *conn,
   /* Reject unencrypted dir connections */
   if (!connection_dir_is_encrypted(conn)) {
     write_short_http_response(conn, 404, "Not found");
+
+    size_t pubkey_str_size = 0;
+
+    /* Find the size of the query */
+    if (get_options()->EnablePrivCount) {
+      tor_assert(url);
+
+      /* After the path prefix follows the base64 encoded blinded pubkey which
+       * we use to get the descriptor from the cache. Skip the prefix and get
+       * the pubkey. */
+      tor_assert(!strcmpstart(url, "/tor/hs/3/"));
+      pubkey_str = url + strlen("/tor/hs/3/");
+      pubkey_str_size = strlen(pubkey_str);
+      tor_assert(pubkey_str_size <= SSIZE_MAX);
+    }
+
+    control_event_privcount_hsdir_cache_fetch(
+                                    HS_VERSION_THREE,
+                                    /* cache info */
+                                    -1, /* has_cache_entry */
+                                    pubkey_str_size,
+                                    "unencrypted", /* cache reason */
+                                    /* descriptor info */
+                                    NULL, /* don't know desc id */
+                                    NULL, /* not v2 */
+                                    NULL, /* not v2 */
+                                    -1,   /* not v2 */
+                                    NULL, /* don't risk untrusted data */
+                                    NULL, /* don't know desc */
+                                    -1,   /* don't know desc */
+                                    -1,   /* don't know desc */
+                                    -1    /* don't know desc */
+                                    );
+
     goto done;
   }
 

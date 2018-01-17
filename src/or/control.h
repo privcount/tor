@@ -188,6 +188,20 @@ void control_event_privcount_hsdir_cache_store(
                                     const hs_cache_dir_descriptor_t *hsv3_desc,
                                     ssize_t encoded_descriptor_byte_count,
                                     ssize_t encoded_intro_point_byte_count);
+void control_event_privcount_hsdir_cache_fetch(
+                            int hs_version_number,
+                            int has_cache_entry_flag,
+                            ssize_t cache_query_byte_count,
+                            const char *cache_reason_string,
+                            const char *desc_id_base32,
+                            const rend_service_descriptor_t *hsv2_desc,
+                            const char *hsv2_desc_body,
+                            time_t hsv2_last_served_time,
+                            const char *blinded_pubkey_base64,
+                            const hs_cache_dir_descriptor_t *hsv3_desc,
+                            time_t hsv3_cache_created_time,
+                            ssize_t encoded_descriptor_byte_count,
+                            ssize_t encoded_intro_point_byte_count);
 void control_event_privcount_circuit(circuit_t *circ,
                                      int is_legacy_circuit_end);
 void control_event_privcount_circuit_cell(
@@ -257,8 +271,8 @@ void control_free_all(void);
 /* These events are in tagged format */
 /* These events are HSDir events */
 #define EVENT_PRIVCOUNT_HSDIR_CACHE_STORE           0x0029
+#define EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH           0x002A
 /*
- * #define EVENT_PRIVCOUNT_HSDIR_CACHE_FETCH        0x002A
  * #define EVENT_PRIVCOUNT_HSDIR_CACHE_EVICT        0x002B
  */
 /* These events are position-independent events.
