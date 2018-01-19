@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -359,6 +359,7 @@ static addr_policy_t *router_parse_addr_policy_private(directory_token_t *tok);
 static int router_get_hash_impl_helper(const char *s, size_t s_len,
                             const char *start_str,
                             const char *end_str, char end_c,
+                            int log_severity,
                             const char **start_out, const char **end_out);
 static int router_get_hash_impl(const char *s, size_t s_len, char *digest,
                                 const char *start_str, const char *end_str,
@@ -387,9 +388,9 @@ static int check_signature_token(const char *digest,
   log_debug(LD_MM, "Area for %s has %lu allocated; using %lu.",   \
             name, (unsigned long)alloc, (unsigned long)used);     \
   STMT_END
-#else
+#else /* !(defined(DEBUG_AREA_ALLOC)) */
 #define DUMP_AREA(a,name) STMT_NIL
-#endif
+#endif /* defined(DEBUG_AREA_ALLOC) */
 
 /* Dump mechanism for unparseable descriptors */
 
@@ -700,7 +701,7 @@ dump_desc_populate_one_file, (const char *dirname, const char *f))
     goto done;
     /* LCOV_EXCL_STOP */
   }
-#endif
+#endif /* SIZE_MAX > UINT64_MAX */
   if (BUG(st.st_size < 0)) {
     /* LCOV_EXCL_START
      * Should be impossible, since the OS isn't supposed to be b0rken. */
@@ -986,6 +987,41 @@ router_get_router_hash(const char *s, size_t s_len, char *digest)
   return router_get_hash_impl(s, s_len, digest,
                               "router ","\nrouter-signature", '\n',
                               DIGEST_SHA1);
+}
+
+/** Try to find the start and end of the signed portion of a networkstatus
+ * document in <b>s</b>. On success, set <b>start_out</b> to the first
+ * character of the document, and <b>end_out</b> to a position one after the
+ * final character of the signed document, and return 0.  On failure, return
+ * -1. */
+int
+router_get_networkstatus_v3_signed_boundaries(const char *s,
+                                              const char **start_out,
+                                              const char **end_out)
+{
+  return router_get_hash_impl_helper(s, strlen(s),
+                                     "network-status-version",
+                                     "\ndirectory-signature",
+                                     ' ', LOG_INFO,
+                                     start_out, end_out);
+}
+
+/** Set <b>digest_out</b> to the SHA3-256 digest of the signed portion of the
+ * networkstatus vote in <b>s</b> -- or of the entirety of <b>s</b> if no
+ * signed portion can be identified.  Return 0 on success, -1 on failure. */
+int
+router_get_networkstatus_v3_sha3_as_signed(uint8_t *digest_out,
+                                           const char *s)
+{
+  const char *start, *end;
+  if (router_get_networkstatus_v3_signed_boundaries(s, &start, &end) < 0) {
+    start = s;
+    end = s + strlen(s);
+  }
+  tor_assert(start);
+  tor_assert(end);
+  return crypto_digest256((char*)digest_out, start, end-start,
+                          DIGEST_SHA3_256);
 }
 
 /** Set <b>digests</b> to all the digests of the consensus document in
@@ -1389,9 +1425,9 @@ dump_distinct_digest_count(int severity)
     verified_digests = digestmap_new();
   tor_log(severity, LD_GENERAL, "%d *distinct* router digests verified",
       digestmap_size(verified_digests));
-#else
+#else /* !(defined(COUNT_DISTINCT_DIGESTS)) */
   (void)severity; /* suppress "unused parameter" warning */
-#endif
+#endif /* defined(COUNT_DISTINCT_DIGESTS) */
 }
 
 /** Try to find an IPv6 OR port in <b>list</b> of directory_token_t's
@@ -1787,7 +1823,8 @@ router_parse_entry_from_string(const char *s, const char *end,
 
       if (router_get_hash_impl_helper(s, end-s, "router ",
                                       "\nrouter-sig-ed25519",
-                                      ' ', &signed_start, &signed_end) < 0) {
+                                      ' ', LOG_WARN,
+                                      &signed_start, &signed_end) < 0) {
         log_warn(LD_DIR, "Can't find ed25519-signed portion of descriptor");
         goto err;
       }
@@ -1959,7 +1996,6 @@ router_parse_entry_from_string(const char *s, const char *end,
   }
 
   tok = find_by_keyword(tokens, K_ROUTER_SIGNATURE);
-  note_crypto_pk_op(VERIFY_RTR);
 #ifdef COUNT_DISTINCT_DIGESTS
   if (!verified_digests)
     verified_digests = digestmap_new();
@@ -2029,6 +2065,9 @@ extrainfo_parse_entry_from_string(const char *s, const char *end,
   /* Do not set this to '1' until we have parsed everything that we intend to
    * parse that's covered by the hash. */
   int can_dl_again = 0;
+
+  if (BUG(s == NULL))
+    return NULL;
 
   if (!end) {
     end = s + strlen(s);
@@ -2137,7 +2176,8 @@ extrainfo_parse_entry_from_string(const char *s, const char *end,
 
       if (router_get_hash_impl_helper(s, end-s, "extra-info ",
                                       "\nrouter-sig-ed25519",
-                                      ' ', &signed_start, &signed_end) < 0) {
+                                      ' ', LOG_WARN,
+                                      &signed_start, &signed_end) < 0) {
         log_warn(LD_DIR, "Can't find ed25519-signed portion of extrainfo");
         goto err;
       }
@@ -2190,7 +2230,6 @@ extrainfo_parse_entry_from_string(const char *s, const char *end,
   }
 
   if (key) {
-    note_crypto_pk_op(VERIFY_RTR);
     if (check_signature_token(digest, DIGEST_LEN, tok, key, 0,
                               "extra-info") < 0)
       goto err;
@@ -2544,7 +2583,7 @@ routerstatus_parse_entry_from_string(memarea_t *area,
       goto err;
     }
   } else if (flav == FLAV_MICRODESC) {
-    offset = -1; /* There is no identity digest */
+    offset = -1; /* There is no descriptor digest in an md consensus r line */
   }
 
   if (vote_rs) {
@@ -2664,6 +2703,14 @@ routerstatus_parse_entry_from_string(memarea_t *area,
       protocol_list_supports_protocol(tok->args[0], PRT_RELAY, 2);
     rs->supports_ed25519_link_handshake =
       protocol_list_supports_protocol(tok->args[0], PRT_LINKAUTH, 3);
+    rs->supports_ed25519_hs_intro =
+      protocol_list_supports_protocol(tok->args[0], PRT_HSINTRO, 4);
+    rs->supports_v3_hsdir =
+      protocol_list_supports_protocol(tok->args[0], PRT_HSDIR,
+                                      PROTOVER_HSDIR_V3);
+    rs->supports_v3_rendezvous_point =
+      protocol_list_supports_protocol(tok->args[0], PRT_HSDIR,
+                                      PROTOVER_HS_RENDEZVOUS_POINT_V3);
   }
   if ((tok = find_opt_by_keyword(tokens, K_V))) {
     tor_assert(tok->n_args == 1);
@@ -2674,6 +2721,12 @@ routerstatus_parse_entry_from_string(memarea_t *area,
       rs->supports_extend2_cells =
         tor_version_as_new_as(tok->args[0], "0.2.4.8-alpha");
       rs->protocols_known = 1;
+    }
+    if (!strcmpstart(tok->args[0], "Tor ") && found_protocol_list) {
+      /* Bug #22447 forces us to filter on this version. */
+      if (!tor_version_as_new_as(tok->args[0], "0.3.0.8")) {
+        rs->supports_v3_hsdir = 0;
+      }
     }
     if (vote_rs) {
       vote_rs->version = tor_strdup(tok->args[0]);
@@ -2811,7 +2864,6 @@ compare_vote_routerstatus_entries(const void **_a, const void **_b)
 int
 networkstatus_verify_bw_weights(networkstatus_t *ns, int consensus_method)
 {
-  int64_t weight_scale;
   int64_t G=0, M=0, E=0, D=0, T=0;
   double Wgg, Wgm, Wgd, Wmg, Wmm, Wme, Wmd, Weg, Wem, Wee, Wed;
   double Gtotal=0, Mtotal=0, Etotal=0;
@@ -2819,7 +2871,8 @@ networkstatus_verify_bw_weights(networkstatus_t *ns, int consensus_method)
   int valid = 1;
   (void) consensus_method;
 
-  weight_scale = networkstatus_get_weight_scale_param(ns);
+  const int64_t weight_scale = networkstatus_get_weight_scale_param(ns);
+  tor_assert(weight_scale >= 1);
   Wgg = networkstatus_get_bw_weight(ns, "Wgg", -1);
   Wgm = networkstatus_get_bw_weight(ns, "Wgm", -1);
   Wgd = networkstatus_get_bw_weight(ns, "Wgd", -1);
@@ -2881,7 +2934,7 @@ networkstatus_verify_bw_weights(networkstatus_t *ns, int consensus_method)
   }
 
   Wgg /= weight_scale;
-  Wgm /= weight_scale;
+  Wgm /= weight_scale; (void) Wgm; // unused from here on.
   Wgd /= weight_scale;
 
   Wmg /= weight_scale;
@@ -2889,8 +2942,8 @@ networkstatus_verify_bw_weights(networkstatus_t *ns, int consensus_method)
   Wme /= weight_scale;
   Wmd /= weight_scale;
 
-  Weg /= weight_scale;
-  Wem /= weight_scale;
+  Weg /= weight_scale; (void) Weg; // unused from here on.
+  Wem /= weight_scale; (void) Wem; // unused from here on.
   Wee /= weight_scale;
   Wed /= weight_scale;
 
@@ -3315,8 +3368,8 @@ extract_shared_random_srvs(networkstatus_t *ns, smartlist_t *tokens)
     voter_identity = "consensus";
   }
 
-  /* We extract both and on error, everything is stopped because it means
-   * the votes is malformed for the shared random value(s). */
+  /* We extract both, and on error everything is stopped because it means
+   * the vote is malformed for the shared random value(s). */
   if (extract_one_srv(tokens, K_PREVIOUS_SRV, &ns->sr_info.previous_srv) < 0) {
     log_warn(LD_DIR, "SR: Unable to parse previous SRV from %s",
              voter_identity);
@@ -3339,6 +3392,7 @@ networkstatus_parse_vote_from_string(const char *s, const char **eos_out,
   networkstatus_voter_info_t *voter = NULL;
   networkstatus_t *ns = NULL;
   common_digests_t ns_digests;
+  uint8_t sha3_as_signed[DIGEST256_LEN];
   const char *cert, *end_of_header, *end_of_footer, *s_dup = s;
   directory_token_t *tok;
   struct in_addr in;
@@ -3352,7 +3406,8 @@ networkstatus_parse_vote_from_string(const char *s, const char **eos_out,
   if (eos_out)
     *eos_out = NULL;
 
-  if (router_get_networkstatus_v3_hashes(s, &ns_digests)) {
+  if (router_get_networkstatus_v3_hashes(s, &ns_digests) ||
+      router_get_networkstatus_v3_sha3_as_signed(sha3_as_signed, s)<0) {
     log_warn(LD_DIR, "Unable to compute digest of network-status");
     goto err;
   }
@@ -3369,6 +3424,7 @@ networkstatus_parse_vote_from_string(const char *s, const char **eos_out,
 
   ns = tor_malloc_zero(sizeof(networkstatus_t));
   memcpy(&ns->digests, &ns_digests, sizeof(ns_digests));
+  memcpy(&ns->digest_sha3_as_signed, sha3_as_signed, sizeof(sha3_as_signed));
 
   tok = find_by_keyword(tokens, K_NETWORK_STATUS_VERSION);
   tor_assert(tok);
@@ -4464,16 +4520,18 @@ static int
 router_get_hash_impl_helper(const char *s, size_t s_len,
                             const char *start_str,
                             const char *end_str, char end_c,
+                            int log_severity,
                             const char **start_out, const char **end_out)
 {
   const char *start, *end;
   start = tor_memstr(s, s_len, start_str);
   if (!start) {
-    log_warn(LD_DIR,"couldn't find start of hashed material \"%s\"",start_str);
+    log_fn(log_severity,LD_DIR,
+           "couldn't find start of hashed material \"%s\"",start_str);
     return -1;
   }
   if (start != s && *(start-1) != '\n') {
-    log_warn(LD_DIR,
+    log_fn(log_severity,LD_DIR,
              "first occurrence of \"%s\" is not at the start of a line",
              start_str);
     return -1;
@@ -4481,12 +4539,14 @@ router_get_hash_impl_helper(const char *s, size_t s_len,
   end = tor_memstr(start+strlen(start_str),
                    s_len - (start-s) - strlen(start_str), end_str);
   if (!end) {
-    log_warn(LD_DIR,"couldn't find end of hashed material \"%s\"",end_str);
+    log_fn(log_severity,LD_DIR,
+           "couldn't find end of hashed material \"%s\"",end_str);
     return -1;
   }
   end = memchr(end+strlen(end_str), end_c, s_len - (end-s) - strlen(end_str));
   if (!end) {
-    log_warn(LD_DIR,"couldn't find EOL");
+    log_fn(log_severity,LD_DIR,
+           "couldn't find EOL");
     return -1;
   }
   ++end;
@@ -4510,7 +4570,7 @@ router_get_hash_impl(const char *s, size_t s_len, char *digest,
                      digest_algorithm_t alg)
 {
   const char *start=NULL, *end=NULL;
-  if (router_get_hash_impl_helper(s,s_len,start_str,end_str,end_c,
+  if (router_get_hash_impl_helper(s,s_len,start_str,end_str,end_c,LOG_WARN,
                                   &start,&end)<0)
     return -1;
 
@@ -4547,7 +4607,7 @@ router_get_hashes_impl(const char *s, size_t s_len, common_digests_t *digests,
                        const char *end_str, char end_c)
 {
   const char *start=NULL, *end=NULL;
-  if (router_get_hash_impl_helper(s,s_len,start_str,end_str,end_c,
+  if (router_get_hash_impl_helper(s,s_len,start_str,end_str,end_c,LOG_WARN,
                                   &start,&end)<0)
     return -1;
 
@@ -5236,12 +5296,14 @@ rend_parse_v2_service_descriptor(rend_service_descriptor_t **parsed_out,
   }
   /* Parse and verify signature. */
   tok = find_by_keyword(tokens, R_SIGNATURE);
-  note_crypto_pk_op(VERIFY_RTR);
   if (check_signature_token(desc_hash, DIGEST_LEN, tok, result->pk, 0,
                             "v2 rendezvous service descriptor") < 0)
     goto err;
   /* Verify that descriptor ID belongs to public key and secret ID part. */
-  crypto_pk_get_digest(result->pk, public_key_hash);
+  if (crypto_pk_get_digest(result->pk, public_key_hash) < 0) {
+    log_warn(LD_REND, "Unable to compute rend descriptor public key digest");
+    goto err;
+  }
   rend_get_descriptor_id_bytes(test_desc_id, public_key_hash,
                                secret_id_part);
   if (tor_memneq(desc_id_out, test_desc_id, DIGEST_LEN)) {

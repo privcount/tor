@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -27,5 +27,5 @@ extern uint64_t stats_n_created_cells_processed;
 extern uint64_t stats_n_relay_cells_processed;
 extern uint64_t stats_n_destroy_cells_processed;
 
-#endif
+#endif /* !defined(TOR_COMMAND_H) */
 

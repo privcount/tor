@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016, The Tor Project, Inc. */
+/* Copyright (c) 2015-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_PERIODIC_H
@@ -33,5 +33,5 @@ void periodic_event_setup(periodic_event_item_t *event);
 void periodic_event_destroy(periodic_event_item_t *event);
 void periodic_event_reschedule(periodic_event_item_t *event);
 
-#endif
+#endif /* !defined(TOR_PERIODIC_H) */
 

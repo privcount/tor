@@ -1,6 +1,6 @@
 # Copyright (c) 2001-2004, Roger Dingledine
 # Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson
-# Copyright (c) 2007-2015, The Tor Project, Inc.
+# Copyright (c) 2007-2017, The Tor Project, Inc.
 # See LICENSE for licensing information
 
 ACLOCAL_AMFLAGS = -I m4
@@ -16,13 +16,20 @@ noinst_PROGRAMS=
 DISTCLEANFILES=
 bin_SCRIPTS=
 AM_CPPFLAGS=
-AM_CFLAGS=@TOR_SYSTEMD_CFLAGS@ @CFLAGS_BUGTRAP@
+AM_CFLAGS=@TOR_SYSTEMD_CFLAGS@ @CFLAGS_BUGTRAP@ @TOR_LZMA_CFLAGS@ @TOR_ZSTD_CFLAGS@
 SHELL=@SHELL@
 
 if COVERAGE_ENABLED
 TESTING_TOR_BINARY=$(top_builddir)/src/or/tor-cov$(EXEEXT)
 else
 TESTING_TOR_BINARY=$(top_builddir)/src/or/tor$(EXEEXT)
+endif
+
+if USE_RUST
+rust_ldadd=$(top_builddir)/src/rust/target/release/@TOR_RUST_UTIL_STATIC_NAME@ \
+	@TOR_RUST_EXTRA_LIBS@
+else
+rust_ldadd=
 endif
 
 include src/include.am
@@ -90,7 +97,7 @@ doxygen:
 test: all
 	$(top_builddir)/src/test/test
 
-check-local: check-spaces
+check-local: check-spaces check-changes
 
 need-chutney-path:
 	@if test ! -d "$$CHUTNEY_PATH"; then \
@@ -210,13 +217,19 @@ check-logs:
 
 .PHONY: check-changes
 check-changes:
+if USEPYTHON
 	@if test -d "$(top_srcdir)/changes"; then \
-		$(PYTHON) $(top_srcdir)/scripts/maint/lintChanges.py $(top_srcdir)/changes/*; \
+		$(PYTHON) $(top_srcdir)/scripts/maint/lintChanges.py $(top_srcdir)/changes; \
 		fi
+endif
 
 .PHONY: update-versions
 update-versions:
 	$(PERL) $(top_builddir)/scripts/maint/updateVersions.pl
+
+.PHONY: callgraph
+callgraph:
+	$(top_builddir)/scripts/maint/run_calltool.sh
 
 version:
 	@echo "Tor @VERSION@"
@@ -230,3 +243,7 @@ mostlyclean-local:
 	rm -rf $(HTML_COVER_DIR)
 	rm -rf $(top_builddir)/doc/doxygen
 	rm -rf $(TEST_NETWORK_ALL_LOG_DIR)
+
+clean-local:
+	rm -rf $(top_builddir)/src/rust/target
+	rm -rf $(top_builddir)/src/rust/.cargo/registry

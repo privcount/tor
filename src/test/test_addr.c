@@ -1,6 +1,6 @@
 /* Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #define ADDRESSMAP_PRIVATE
@@ -8,6 +8,24 @@
 #include "or.h"
 #include "test.h"
 #include "addressmap.h"
+
+/** Mocking replacement: only handles localhost. */
+static int
+mock_tor_addr_lookup(const char *name, uint16_t family, tor_addr_t *addr_out)
+{
+  if (!strcmp(name, "localhost")) {
+    if (family == AF_INET || family == AF_UNSPEC) {
+      tor_addr_from_ipv4h(addr_out, 0x7f000001);
+      return 0;
+    } else if (family == AF_INET6) {
+      char bytes[16] = { 0, 0, 0, 0, 0, 0, 0, 0,
+                         0, 0, 0, 0, 0, 0, 0, 1 };
+      tor_addr_from_ipv6_bytes(addr_out, bytes);
+      return 0;
+    }
+  }
+  return -1;
+}
 
 static void
 test_addr_basic(void *arg)
@@ -29,6 +47,9 @@ test_addr_basic(void *arg)
   tt_int_op(u32,OP_EQ, 0x04030201u);
   tt_int_op(u16,OP_EQ, 99);
   tor_free(cp);
+
+  MOCK(tor_addr_lookup, mock_tor_addr_lookup);
+
   tt_assert(!addr_port_lookup(LOG_WARN, "nonexistent.address:4040",
                                &cp, NULL, &u16));
   tt_str_op(cp,OP_EQ, "nonexistent.address");
@@ -36,8 +57,8 @@ test_addr_basic(void *arg)
   tor_free(cp);
   tt_assert(!addr_port_lookup(LOG_WARN, "localhost:9999", &cp, &u32, &u16));
   tt_str_op(cp,OP_EQ, "localhost");
-  tt_int_op(u32,OP_EQ, 0x7f000001u);
   tt_int_op(u16,OP_EQ, 9999);
+  tt_int_op(u32,OP_EQ, 0x7f000001u);
   tor_free(cp);
   u32 = 3;
   tt_assert(!addr_port_lookup(LOG_WARN, "localhost", NULL, &u32, &u16));
@@ -75,6 +96,7 @@ test_addr_basic(void *arg)
   }
 
  done:
+  UNMOCK(tor_addr_lookup);
   tor_free(cp);
 }
 
@@ -429,10 +451,10 @@ test_addr_ip6_helpers(void *arg)
                     "::ffff:6.0.0.0"); /* XXXX wrong. */
   tor_addr_parse_mask_ports("[::ffff:2.3.4.5]", 0, &t1, NULL, NULL, NULL);
   tor_addr_parse_mask_ports("2.3.4.5", 0, &t2, NULL, NULL, NULL);
-  tt_assert(tor_addr_compare(&t1, &t2, CMP_SEMANTIC) == 0);
+  tt_int_op(tor_addr_compare(&t1, &t2, CMP_SEMANTIC), OP_EQ, 0);
   tor_addr_parse_mask_ports("[::ffff:2.3.4.4]", 0, &t1, NULL, NULL, NULL);
   tor_addr_parse_mask_ports("2.3.4.5", 0, &t2, NULL, NULL, NULL);
-  tt_assert(tor_addr_compare(&t1, &t2, CMP_SEMANTIC) < 0);
+  tt_int_op(tor_addr_compare(&t1, &t2, CMP_SEMANTIC), OP_LT, 0);
 
   /* test compare_masked */
   test_addr_compare_masked("ffff::", OP_EQ, "ffff::0", 128);
@@ -615,7 +637,7 @@ test_addr_ip6_helpers(void *arg)
   /* Try some long addresses. */
   r=tor_addr_parse_mask_ports("[ffff:1111:1111:1111:1111:1111:1111:1111]",
                               0, &t1, NULL, NULL, NULL);
-  tt_assert(r == AF_INET6);
+  tt_int_op(r, OP_EQ, AF_INET6);
   r=tor_addr_parse_mask_ports("[ffff:1111:1111:1111:1111:1111:1111:11111]",
                               0, &t1, NULL, NULL, NULL);
   tt_int_op(r, OP_EQ, -1);
@@ -664,38 +686,38 @@ test_addr_ip6_helpers(void *arg)
   tt_int_op(r, OP_EQ, -1);
   r=tor_addr_parse_mask_ports("*6",0,&t1, &mask, NULL, NULL);
   tt_int_op(r, OP_EQ, -1);
-  tt_assert(r == -1);
+  tt_int_op(r, OP_EQ, -1);
   /* Try a mask with a wildcard. */
   r=tor_addr_parse_mask_ports("*/16",0,&t1, &mask, NULL, NULL);
-  tt_assert(r == -1);
+  tt_int_op(r, OP_EQ, -1);
   r=tor_addr_parse_mask_ports("*4/16",TAPMP_EXTENDED_STAR,
                               &t1, &mask, NULL, NULL);
-  tt_assert(r == -1);
+  tt_int_op(r, OP_EQ, -1);
   r=tor_addr_parse_mask_ports("*6/30",TAPMP_EXTENDED_STAR,
                               &t1, &mask, NULL, NULL);
-  tt_assert(r == -1);
+  tt_int_op(r, OP_EQ, -1);
   /* Basic mask tests*/
   r=tor_addr_parse_mask_ports("1.1.2.2/31",0,&t1, &mask, NULL, NULL);
-  tt_assert(r == AF_INET);
+  tt_int_op(r, OP_EQ, AF_INET);
   tt_int_op(mask,OP_EQ,31);
   tt_int_op(tor_addr_family(&t1),OP_EQ,AF_INET);
   tt_int_op(tor_addr_to_ipv4h(&t1),OP_EQ,0x01010202);
   r=tor_addr_parse_mask_ports("3.4.16.032:1-2",0,&t1, &mask, &port1, &port2);
-  tt_assert(r == AF_INET);
+  tt_int_op(r, OP_EQ, AF_INET);
   tt_int_op(mask,OP_EQ,32);
   tt_int_op(tor_addr_family(&t1),OP_EQ,AF_INET);
   tt_int_op(tor_addr_to_ipv4h(&t1),OP_EQ,0x03041020);
-  tt_assert(port1 == 1);
-  tt_assert(port2 == 2);
+  tt_uint_op(port1, OP_EQ, 1);
+  tt_uint_op(port2, OP_EQ, 2);
   r=tor_addr_parse_mask_ports("1.1.2.3/255.255.128.0",0,&t1, &mask,NULL,NULL);
-  tt_assert(r == AF_INET);
+  tt_int_op(r, OP_EQ, AF_INET);
   tt_int_op(mask,OP_EQ,17);
   tt_int_op(tor_addr_family(&t1),OP_EQ,AF_INET);
   tt_int_op(tor_addr_to_ipv4h(&t1),OP_EQ,0x01010203);
   r=tor_addr_parse_mask_ports("[efef::]/112",0,&t1, &mask, &port1, &port2);
-  tt_assert(r == AF_INET6);
-  tt_assert(port1 == 1);
-  tt_assert(port2 == 65535);
+  tt_int_op(r, OP_EQ, AF_INET6);
+  tt_uint_op(port1, OP_EQ, 1);
+  tt_uint_op(port2, OP_EQ, 65535);
   /* Try regular wildcard behavior without TAPMP_EXTENDED_STAR */
   r=tor_addr_parse_mask_ports("*:80-443",0,&t1,&mask,&port1,&port2);
   tt_int_op(r,OP_EQ,AF_INET); /* Old users of this always get inet */
@@ -730,15 +752,17 @@ test_addr_ip6_helpers(void *arg)
   tt_int_op(port2,OP_EQ,65535);
 
   /* make sure inet address lengths >= max */
-  tt_assert(INET_NTOA_BUF_LEN >= sizeof("255.255.255.255"));
-  tt_assert(TOR_ADDR_BUF_LEN >=
-              sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255"));
+  tt_int_op(INET_NTOA_BUF_LEN, OP_GE, sizeof("255.255.255.255"));
+  tt_int_op(TOR_ADDR_BUF_LEN, OP_GE,
+            sizeof("ffff:ffff:ffff:ffff:ffff:ffff:255.255.255.255"));
 
   tt_assert(sizeof(tor_addr_t) >= sizeof(struct in6_addr));
 
   /* get interface addresses */
   r = get_interface_address6(LOG_DEBUG, AF_INET, &t1);
+  tt_int_op(r, OP_LE, 0); // "it worked or it didn't"
   i = get_interface_address6(LOG_DEBUG, AF_INET6, &t2);
+  tt_int_op(i, OP_LE, 0); // "it worked or it didn't"
 
   TT_BLATHER(("v4 address: %s (family=%d)", fmt_addr(&t1),
               tor_addr_family(&t1)));
@@ -988,7 +1012,7 @@ test_addr_sockaddr_to_str(void *arg)
   s_un.sun_family = AF_UNIX;
   strlcpy(s_un.sun_path, "/here/is/a/path", sizeof(s_un.sun_path));
   CHECK(s_un, "unix:/here/is/a/path");
-#endif
+#endif /* defined(HAVE_SYS_UN_H) */
 
   memset(&sin6,0,sizeof(sin6));
   sin6.sin6_family = AF_INET6;

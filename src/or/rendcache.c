@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016, The Tor Project, Inc. */
+/* Copyright (c) 2015-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -307,7 +307,7 @@ void
 rend_cache_purge(void)
 {
   if (rend_cache) {
-    log_info(LD_REND, "Purging HS descriptor cache");
+    log_info(LD_REND, "Purging HS v2 descriptor cache");
     strmap_free(rend_cache, rend_cache_entry_free_);
   }
   rend_cache = strmap_new();
@@ -319,7 +319,7 @@ void
 rend_cache_failure_purge(void)
 {
   if (rend_cache_failure) {
-    log_info(LD_REND, "Purging HS failure cache");
+    log_info(LD_REND, "Purging HS v2 failure cache");
     strmap_free(rend_cache_failure, rend_cache_failure_entry_free_);
   }
   rend_cache_failure = strmap_new();
@@ -516,7 +516,7 @@ rend_cache_lookup_entry(const char *query, int version, rend_cache_entry_t **e)
   tor_assert(rend_cache);
   tor_assert(query);
 
-  if (!rend_valid_service_id(query)) {
+  if (!rend_valid_v2_service_id(query)) {
     ret = -EINVAL;
     goto end;
   }
@@ -562,7 +562,7 @@ rend_cache_lookup_v2_desc_as_service(const char *query, rend_cache_entry_t **e)
   tor_assert(rend_cache_local_service);
   tor_assert(query);
 
-  if (!rend_valid_service_id(query)) {
+  if (!rend_valid_v2_service_id(query)) {
     ret = -EINVAL;
     goto end;
   }

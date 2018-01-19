@@ -1,7 +1,7 @@
 /* Copyright (c) 2001, Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_COMPAT_OPENSSL_H
@@ -25,7 +25,7 @@
 /* We define this macro if we're trying to build with the majorly refactored
  * API in OpenSSL 1.1 */
 #define OPENSSL_1_1_API
-#endif
+#endif /* OPENSSL_VERSION_NUMBER >= OPENSSL_V_SERIES(1,1,0) && ... */
 
 #ifndef OPENSSL_1_1_API
 #define OPENSSL_VERSION SSLEAY_VERSION
@@ -37,11 +37,11 @@
    ((st) == SSL3_ST_SW_SRVR_HELLO_B))
 #define OSSL_HANDSHAKE_STATE int
 #define CONST_IF_OPENSSL_1_1_API
-#else
+#else /* !(!defined(OPENSSL_1_1_API)) */
 #define STATE_IS_SW_SERVER_HELLO(st) \
   ((st) == TLS_ST_SW_SRVR_HELLO)
 #define CONST_IF_OPENSSL_1_1_API const
-#endif
+#endif /* !defined(OPENSSL_1_1_API) */
 
-#endif
+#endif /* !defined(TOR_COMPAT_OPENSSL_H) */
 

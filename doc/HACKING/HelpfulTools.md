@@ -111,14 +111,18 @@ Running gcov for unit test coverage
 
 (On OSX, you'll need to start with `--enable-coverage CC=clang`.)
 
-Then, look at the .gcov files in `coverage-output`.  '-' before a line means
-that the compiler generated no code for that line.  '######' means that the
-line was never reached.  Lines with numbers were called that number of times.
-
 If that doesn't work:
 
    * Try configuring Tor with `--disable-gcc-hardening`
    * You might need to run `make clean` after you run `./configure`.
+
+Then, look at the .gcov files in `coverage-output`.  '-' before a line means
+that the compiler generated no code for that line.  '######' means that the
+line was never reached.  Lines with numbers were called that number of times.
+
+For more details about how to read gcov output, see the [Invoking
+gcov](https://gcc.gnu.org/onlinedocs/gcc/Invoking-Gcov.html) chapter
+of the GCC manual.
 
 If you make changes to Tor and want to get another set of coverage results,
 you can run `make reset-gcov` to clear the intermediary gcov output.
@@ -128,9 +132,13 @@ a meaningful diff between them, you can run:
 
     ./scripts/test/cov-diff coverage-output1 coverage-output2 | less
 
-In this diff, any lines that were visited at least once will have coverage
-"1".  This lets you inspect what you (probably) really want to know: which
-untested lines were changed?  Are there any new untested lines?
+In this diff, any lines that were visited at least once will have coverage "1",
+and line numbers are deleted.  This lets you inspect what you (probably) really
+want to know: which untested lines were changed?  Are there any new untested
+lines?
+
+If you run ./scripts/test/cov-exclude, it marks excluded unreached
+lines with 'x', and excluded reached lines with '!!!'.
 
 Running integration tests
 -------------------------
@@ -226,17 +234,10 @@ performance! See the gperftools manual for more info, but basically:
 Generating and analyzing a callgraph
 ------------------------------------
 
-1. Run `./scripts/maint/generate_callgraph.sh`.  This will generate a
-   bunch of files in a new ./callgraph directory.
+0. Build Tor on linux or mac, ideally with -O0 or -fno-inline.
 
-2. Run `./scripts/maint/analyze_callgraph.py callgraph/src/*/*`.  This
-   will do a lot of graph operations and then dump out a new
-   `callgraph.pkl` file, containing data in Python's 'pickle' format.
-
-3. Run `./scripts/maint/display_callgraph.py`.  It will display:
-    - the number of functions reachable from each function.
-    - all strongly-connnected components in the Tor callgraph
-    - the largest bottlenecks in the largest SCC in the Tor callgraph.
+1. Clone 'https://gitweb.torproject.org/user/nickm/calltool.git/' .
+   Follow the README in that repository.
 
 Note that currently the callgraph generator can't detect calls that pass
 through function pointers.

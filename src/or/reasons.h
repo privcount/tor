@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -26,6 +26,7 @@ const char *socks4_response_code_to_string(uint8_t code);
 const char *socks5_response_code_to_string(uint8_t code);
 
 const char *bandwidth_weight_rule_to_string(enum bandwidth_weight_rule_t rule);
+const char *end_reason_to_http_connect_response_line(int endreason);
 
-#endif
+#endif /* !defined(TOR_REASONS_H) */
 

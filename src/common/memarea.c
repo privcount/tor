@@ -1,4 +1,4 @@
-/* Copyright (c) 2008-2016, The Tor Project, Inc. */
+/* Copyright (c) 2008-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /** \file memarea.c
@@ -7,11 +7,15 @@
  */
 
 #include "orconfig.h"
+#include <stddef.h>
 #include <stdlib.h>
 #include "memarea.h"
 #include "util.h"
 #include "compat.h"
 #include "torlog.h"
+#include "container.h"
+
+#ifndef DISABLE_MEMORY_SENTINELS
 
 /** If true, we try to detect any attempts to write beyond the length of a
  * memarea. */
@@ -29,7 +33,7 @@
 #define MEMAREA_ALIGN_MASK ((uintptr_t)7)
 #else
 #error "void* is neither 4 nor 8 bytes long. I don't know how to align stuff."
-#endif
+#endif /* MEMAREA_ALIGN == 4 || ... */
 
 #if defined(__GNUC__) && defined(FLEXIBLE_ARRAY_MEMBER)
 #define USE_ALIGNED_ATTRIBUTE
@@ -37,7 +41,7 @@
 #define U_MEM mem
 #else
 #define U_MEM u.mem
-#endif
+#endif /* defined(__GNUC__) && defined(FLEXIBLE_ARRAY_MEMBER) */
 
 #ifdef USE_SENTINELS
 /** Magic value that we stick at the end of a memarea so we can make sure
@@ -57,11 +61,11 @@
   uint32_t sent_val = get_uint32(&(chunk)->U_MEM[chunk->mem_size]);     \
   tor_assert(sent_val == SENTINEL_VAL);                                 \
   STMT_END
-#else
+#else /* !(defined(USE_SENTINELS)) */
 #define SENTINEL_LEN 0
 #define SET_SENTINEL(chunk) STMT_NIL
 #define CHECK_SENTINEL(chunk) STMT_NIL
-#endif
+#endif /* defined(USE_SENTINELS) */
 
 /** Increment <b>ptr</b> until it is aligned to MEMAREA_ALIGN. */
 static inline void *
@@ -93,12 +97,12 @@ typedef struct memarea_chunk_t {
     void *void_for_alignment_; /**< Dummy; used to make sure mem is aligned. */
   } u; /**< Union used to enforce alignment when we don't have support for
         * doing it right. */
-#endif
+#endif /* defined(USE_ALIGNED_ATTRIBUTE) */
 } memarea_chunk_t;
 
 /** How many bytes are needed for overhead before we get to the memory part
  * of a chunk? */
-#define CHUNK_HEADER_SIZE STRUCT_OFFSET(memarea_chunk_t, U_MEM)
+#define CHUNK_HEADER_SIZE offsetof(memarea_chunk_t, U_MEM)
 
 /** What's the smallest that we'll allocate a chunk? */
 #define CHUNK_SIZE 4096
@@ -303,4 +307,92 @@ memarea_assert_ok(memarea_t *area)
           (char*) realign_pointer(chunk->U_MEM+chunk->mem_size));
   }
 }
+
+#else /* !(!defined(DISABLE_MEMORY_SENTINELS)) */
+
+struct memarea_t {
+  smartlist_t *pieces;
+};
+
+memarea_t *
+memarea_new(void)
+{
+  memarea_t *ma = tor_malloc_zero(sizeof(memarea_t));
+  ma->pieces = smartlist_new();
+  return ma;
+}
+void
+memarea_drop_all(memarea_t *area)
+{
+  memarea_clear(area);
+  smartlist_free(area->pieces);
+  tor_free(area);
+}
+void
+memarea_clear(memarea_t *area)
+{
+  SMARTLIST_FOREACH(area->pieces, void *, p, tor_free_(p));
+  smartlist_clear(area->pieces);
+}
+int
+memarea_owns_ptr(const memarea_t *area, const void *ptr)
+{
+  SMARTLIST_FOREACH(area->pieces, const void *, p, if (ptr == p) return 1;);
+  return 0;
+}
+
+void *
+memarea_alloc(memarea_t *area, size_t sz)
+{
+  void *result = tor_malloc(sz);
+  smartlist_add(area->pieces, result);
+  return result;
+}
+
+void *
+memarea_alloc_zero(memarea_t *area, size_t sz)
+{
+  void *result = tor_malloc_zero(sz);
+  smartlist_add(area->pieces, result);
+  return result;
+}
+void *
+memarea_memdup(memarea_t *area, const void *s, size_t n)
+{
+  void *r = memarea_alloc(area, n);
+  memcpy(r, s, n);
+  return r;
+}
+char *
+memarea_strdup(memarea_t *area, const char *s)
+{
+  size_t n = strlen(s);
+  char *r = memarea_alloc(area, n+1);
+  memcpy(r, s, n);
+  r[n] = 0;
+  return r;
+}
+char *
+memarea_strndup(memarea_t *area, const char *s, size_t n)
+{
+  size_t ln = strnlen(s, n);
+  char *r = memarea_alloc(area, ln+1);
+  memcpy(r, s, ln);
+  r[ln] = 0;
+  return r;
+}
+void
+memarea_get_stats(memarea_t *area,
+                  size_t *allocated_out, size_t *used_out)
+{
+  (void)area;
+  *allocated_out = *used_out = 128;
+}
+void
+memarea_assert_ok(memarea_t *area)
+{
+  (void)area;
+}
+
+#endif /* !defined(DISABLE_MEMORY_SENTINELS) */
 

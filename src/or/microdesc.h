@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -32,8 +32,6 @@ void microdesc_cache_clear(microdesc_cache_t *cache);
 microdesc_t *microdesc_cache_lookup_by_digest256(microdesc_cache_t *cache,
                                                  const char *d);
 
-size_t microdesc_average_size(microdesc_cache_t *cache);
-
 smartlist_t *microdesc_list_missing_digest256(networkstatus_t *ns,
                                               microdesc_cache_t *cache,
                                               int downloadable_only,
@@ -52,5 +50,9 @@ int we_fetch_microdescriptors(const or_options_t *options);
 int we_fetch_router_descriptors(const or_options_t *options);
 int we_use_microdescriptors_for_circuits(const or_options_t *options);
 
-#endif
+void microdesc_note_outdated_dirserver(const char *relay_digest);
+int microdesc_relay_is_outdated_dirserver(const char *relay_digest);
+void microdesc_reset_outdated_dirservers_list(void);
+
+#endif /* !defined(TOR_MICRODESC_H) */
 

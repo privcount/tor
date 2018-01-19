@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Tor Project, Inc. */
+/* Copyright (c) 2013-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -41,5 +41,5 @@ void fp_pair_map_assert_ok(const fp_pair_map_t *map);
 
 #undef DECLARE_MAP_FNS
 
-#endif
+#endif /* !defined(_TOR_FP_PAIR_H) */
 

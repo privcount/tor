@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -362,7 +362,7 @@ routerset_get_all_nodes(smartlist_t *out, const routerset_t *routerset,
     /* No routers are specified by type; all are given by name or digest.
      * we can do a lookup in O(len(routerset)). */
     SMARTLIST_FOREACH(routerset->list, const char *, name, {
-        const node_t *node = node_get_by_nickname(name, 1);
+        const node_t *node = node_get_by_nickname(name, 0);
         if (node) {
           if (!running_only || node->is_running)
             if (!routerset_contains_node(excludeset, node))

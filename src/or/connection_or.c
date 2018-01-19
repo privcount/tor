@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -46,6 +46,7 @@
 #include "microdesc.h"
 #include "networkstatus.h"
 #include "nodelist.h"
+#include "proto_cell.h"
 #include "reasons.h"
 #include "relay.h"
 #include "rephist.h"
@@ -55,6 +56,7 @@
 #include "ext_orport.h"
 #include "scheduler.h"
 #include "torcert.h"
+#include "channelpadding.h"
 
 static int connection_tls_finish_handshake(or_connection_t *conn);
 static int connection_or_launch_v3_or_handshake(or_connection_t *conn);
@@ -471,7 +473,7 @@ var_cell_pack_header(const var_cell_t *cell, char *hdr_out, int wide_circ_ids)
 var_cell_t *
 var_cell_new(uint16_t payload_len)
 {
-  size_t size = STRUCT_OFFSET(var_cell_t, payload) + payload_len;
+  size_t size = offsetof(var_cell_t, payload) + payload_len;
   var_cell_t *cell = tor_malloc_zero(size);
   cell->payload_len = payload_len;
   cell->command = 0;
@@ -490,7 +492,7 @@ var_cell_copy(const var_cell_t *src)
   size_t size = 0;
 
   if (src != NULL) {
-    size = STRUCT_OFFSET(var_cell_t, payload) + src->payload_len;
+    size = offsetof(var_cell_t, payload) + src->payload_len;
     copy = tor_malloc_zero(size);
     copy->payload_len = src->payload_len;
     copy->command = src->command;
@@ -725,7 +727,7 @@ connection_or_about_to_close(or_connection_t *or_conn)
         control_event_or_conn_status(or_conn, OR_CONN_EVENT_FAILED,
                                      reason);
         if (!authdir_mode_tests_reachability(options))
-          control_event_bootstrap_problem(
+          control_event_bootstrap_prob_or(
                 orconn_end_reason_to_control_string(reason),
                 reason, or_conn);
       }
@@ -816,24 +818,6 @@ connection_or_update_token_buckets(smartlist_t *conns,
   });
 }
 
-/** How long do we wait before killing non-canonical OR connections with no
- * circuits?  In Tor versions up to 0.2.1.25 and 0.2.2.12-alpha, we waited 15
- * minutes before cancelling these connections, which caused fast relays to
- * accrue many many idle connections. Hopefully 3-4.5 minutes is low enough
- * that it kills most idle connections, without being so low that we cause
- * clients to bounce on and off.
- *
- * For canonical connections, the limit is higher, at 15-22.5 minutes.
- *
- * For each OR connection, we randomly add up to 50% extra to its idle_timeout
- * field, to avoid exposing when exactly the last circuit closed.  Since we're
- * storing idle_timeout in a uint16_t, don't let these values get higher than
- * 12 hours or so without revising connection_or_set_canonical and/or expanding
- * idle_timeout.
- */
-#define IDLE_OR_CONN_TIMEOUT_NONCANONICAL 180
-#define IDLE_OR_CONN_TIMEOUT_CANONICAL 900
-
 /* Mark <b>or_conn</b> as canonical if <b>is_canonical</b> is set, and
  * non-canonical otherwise. Adjust idle_timeout accordingly.
  */
@@ -841,9 +825,6 @@ void
 connection_or_set_canonical(or_connection_t *or_conn,
                             int is_canonical)
 {
-  const unsigned int timeout_base = is_canonical ?
-    IDLE_OR_CONN_TIMEOUT_CANONICAL : IDLE_OR_CONN_TIMEOUT_NONCANONICAL;
-
   if (bool_eq(is_canonical, or_conn->is_canonical) &&
       or_conn->idle_timeout != 0) {
     /* Don't recalculate an existing idle_timeout unless the canonical
@@ -852,7 +833,14 @@ connection_or_set_canonical(or_connection_t *or_conn,
   }
 
   or_conn->is_canonical = !! is_canonical; /* force to a 1-bit boolean */
-  or_conn->idle_timeout = timeout_base + crypto_rand_int(timeout_base / 2);
+  or_conn->idle_timeout = channelpadding_get_channel_idle_timeout(
+          TLS_CHAN_TO_BASE(or_conn->chan), is_canonical);
+
+  log_info(LD_CIRC,
+          "Channel " U64_FORMAT " chose an idle timeout of %d.",
+          or_conn->chan ?
+          U64_PRINTF_ARG(TLS_CHAN_TO_BASE(or_conn->chan)->global_identifier):0,
+          or_conn->idle_timeout);
 }
 
 /** If we don't necessarily know the router we're connecting to, but we
@@ -1055,10 +1043,8 @@ connection_or_group_set_badness_(smartlist_t *group, int force)
     }
 
     if (!best ||
-        channel_is_better(now,
-                          TLS_CHAN_TO_BASE(or_conn->chan),
-                          TLS_CHAN_TO_BASE(best->chan),
-                          0)) {
+        channel_is_better(TLS_CHAN_TO_BASE(or_conn->chan),
+                          TLS_CHAN_TO_BASE(best->chan))) {
       best = or_conn;
     }
   } SMARTLIST_FOREACH_END(or_conn);
@@ -1086,11 +1072,9 @@ connection_or_group_set_badness_(smartlist_t *group, int force)
         or_conn->base_.state != OR_CONN_STATE_OPEN)
       continue;
     if (or_conn != best &&
-        channel_is_better(now,
-                          TLS_CHAN_TO_BASE(best->chan),
-                          TLS_CHAN_TO_BASE(or_conn->chan), 1)) {
-      /* This isn't the best conn, _and_ the best conn is better than it,
-         even when we're being forgiving. */
+        channel_is_better(TLS_CHAN_TO_BASE(best->chan),
+                          TLS_CHAN_TO_BASE(or_conn->chan))) {
+      /* This isn't the best conn, _and_ the best conn is better than it */
       if (best->is_canonical) {
         log_info(LD_OR,
                  "Marking OR conn to %s:%d as unsuitable for new circuits: "
@@ -1129,7 +1113,7 @@ connection_or_connect_failed(or_connection_t *conn,
 {
   control_event_or_conn_status(conn, OR_CONN_EVENT_FAILED, reason);
   if (!authdir_mode_tests_reachability(get_options()))
-    control_event_bootstrap_problem(msg, reason, conn);
+    control_event_bootstrap_prob_or(msg, reason, conn);
 }
 
 /** <b>conn</b> got an error in connection_handle_read_impl() or
@@ -1252,7 +1236,7 @@ connection_or_connect, (const tor_addr_t *_addr, uint16_t port,
                fmt_addrport(&TO_CONN(conn)->addr, TO_CONN(conn)->port),
                transport_name, transport_name);
 
-      control_event_bootstrap_problem(
+      control_event_bootstrap_prob_or(
                                 "Can't connect to bridge",
                                 END_OR_CONN_REASON_PT_MISSING,
                                 conn);
@@ -1386,7 +1370,6 @@ connection_tls_start_handshake,(or_connection_t *conn, int receiving))
   connection_start_reading(TO_CONN(conn));
   log_debug(LD_HANDSHAKE,"starting TLS handshake on fd "TOR_SOCKET_T_FORMAT,
             conn->base_.s);
-  note_crypto_pk_op(receiving ? TLS_HANDSHAKE_S : TLS_HANDSHAKE_C);
 
   if (connection_tls_continue_handshake(conn) < 0)
     return -1;
@@ -1566,7 +1549,10 @@ connection_or_check_valid_tls_handshake(or_connection_t *conn,
   }
 
   if (identity_rcvd) {
-    crypto_pk_get_digest(identity_rcvd, digest_rcvd_out);
+    if (crypto_pk_get_digest(identity_rcvd, digest_rcvd_out) < 0) {
+      crypto_pk_free(identity_rcvd);
+      return -1;
+    }
   } else {
     memset(digest_rcvd_out, 0, DIGEST_LEN);
   }
@@ -1728,7 +1714,7 @@ connection_or_client_learned_peer_id(or_connection_t *conn,
     control_event_or_conn_status(conn, OR_CONN_EVENT_FAILED,
                                  END_OR_CONN_REASON_OR_IDENTITY);
     if (!authdir_mode_tests_reachability(options))
-      control_event_bootstrap_problem(
+      control_event_bootstrap_prob_or(
                                 "Unexpected identity in router certificate",
                                 END_OR_CONN_REASON_OR_IDENTITY,
                                 conn);
@@ -1757,8 +1743,9 @@ connection_or_client_learned_peer_id(or_connection_t *conn,
   return 0;
 }
 
-/** Return when a client used this, for connection.c, since client_used
- * is now one of the timestamps of channel_t */
+/** Return when we last used this channel for client activity (origin
+ * circuits). This is called from connection.c, since client_used is now one
+ * of the timestamps in channel_t */
 
 time_t
 connection_or_client_used(or_connection_t *conn)
@@ -1772,7 +1759,7 @@ connection_or_client_used(or_connection_t *conn)
 
 /** The v1/v2 TLS handshake is finished.
  *
- * Make sure we are happy with the person we just handshaked with.
+ * Make sure we are happy with the peer we just handshaked with.
  *
  * If they initiated the connection, make sure they're not already connected,
  * then initialize conn from the information in router.
@@ -1995,11 +1982,22 @@ connection_or_write_cell_to_buf(const cell_t *cell, or_connection_t *conn)
 
   cell_pack(&networkcell, cell, conn->wide_circ_ids);
 
-  connection_write_to_buf(networkcell.body, cell_network_size, TO_CONN(conn));
+  rep_hist_padding_count_write(PADDING_TYPE_TOTAL);
+  if (cell->command == CELL_PADDING)
+    rep_hist_padding_count_write(PADDING_TYPE_CELL);
+
+  connection_buf_add(networkcell.body, cell_network_size, TO_CONN(conn));
 
   /* Touch the channel's active timestamp if there is one */
-  if (conn->chan)
+  if (conn->chan) {
     channel_timestamp_active(TLS_CHAN_TO_BASE(conn->chan));
+
+    if (TLS_CHAN_TO_BASE(conn->chan)->currently_padding) {
+      rep_hist_padding_count_write(PADDING_TYPE_ENABLED_TOTAL);
+      if (cell->command == CELL_PADDING)
+        rep_hist_padding_count_write(PADDING_TYPE_ENABLED_CELL);
+    }
+  }
 
   if (conn->base_.state == OR_CONN_STATE_OR_HANDSHAKING_V3)
     or_handshake_state_record_cell(conn, conn->handshake_state, cell, 0);
@@ -2018,8 +2016,8 @@ connection_or_write_var_cell_to_buf,(const var_cell_t *cell,
   tor_assert(cell);
   tor_assert(conn);
   n = var_cell_pack_header(cell, hdr, conn->wide_circ_ids);
-  connection_write_to_buf(hdr, n, TO_CONN(conn));
-  connection_write_to_buf((char*)cell->payload,
+  connection_buf_add(hdr, n, TO_CONN(conn));
+  connection_buf_add((char*)cell->payload,
                           cell->payload_len, TO_CONN(conn));
   if (conn->base_.state == OR_CONN_STATE_OR_HANDSHAKING_V3)
     or_handshake_state_record_var_cell(conn, conn->handshake_state, cell, 0);
@@ -2094,7 +2092,7 @@ connection_or_process_cells_from_inbuf(or_connection_t *conn)
         channel_timestamp_active(TLS_CHAN_TO_BASE(conn->chan));
 
       circuit_build_times_network_is_live(get_circuit_build_times_mutable());
-      connection_fetch_from_buf(buf, cell_network_size, TO_CONN(conn));
+      connection_buf_get_bytes(buf, cell_network_size, TO_CONN(conn));
 
       /* retrieve cell info from buf (create the host-order struct from the
        * network-order string) */
@@ -2106,7 +2104,7 @@ connection_or_process_cells_from_inbuf(or_connection_t *conn)
 }
 
 /** Array of recognized link protocol versions. */
-static const uint16_t or_protocol_versions[] = { 1, 2, 3, 4 };
+static const uint16_t or_protocol_versions[] = { 1, 2, 3, 4, 5 };
 /** Number of versions in <b>or_protocol_versions</b>. */
 static const int n_or_protocol_versions =
   (int)( sizeof(or_protocol_versions)/sizeof(uint16_t) );

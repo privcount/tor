@@ -1,6 +1,6 @@
 /* Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 extern const char tor_git_revision[];
@@ -21,6 +21,7 @@ const char tor_git_revision[] = "";
 #include "rephist.h"
 #include "backtrace.h"
 #include "test.h"
+#include "channelpadding.h"
 
 #include <stdio.h>
 #ifdef HAVE_FCNTL_H
@@ -32,13 +33,12 @@ const char tor_git_revision[] = "";
 #include <direct.h>
 #else
 #include <dirent.h>
-#endif
+#endif /* defined(_WIN32) */
 
 #include "or.h"
 
 #ifdef USE_DMALLOC
 #include <dmalloc.h>
-#include <openssl/crypto.h>
 #include "main.h"
 #endif
 
@@ -84,7 +84,7 @@ setup_directory(void)
                  (int)getpid(), rnd32);
     r = mkdir(temp_dir);
   }
-#else
+#else /* !(defined(_WIN32)) */
   tor_snprintf(temp_dir, sizeof(temp_dir), "/tmp/tor_test_%d_%s",
                (int) getpid(), rnd32);
   r = mkdir(temp_dir, 0700);
@@ -92,7 +92,7 @@ setup_directory(void)
     /* undo sticky bit so tests don't get confused. */
     r = chown(temp_dir, getuid(), getgid());
   }
-#endif
+#endif /* defined(_WIN32) */
   if (r) {
     fprintf(stderr, "Can't create directory %s:", temp_dir);
     perror("");
@@ -238,14 +238,15 @@ main(int c, const char **v)
 
 #ifdef USE_DMALLOC
   {
-    int r = CRYPTO_set_mem_ex_functions(tor_malloc_, tor_realloc_, tor_free_);
-    tor_assert(r);
+    int r = crypto_use_tor_alloc_functions();
+    tor_assert(r == 0);
   }
-#endif
+#endif /* defined(USE_DMALLOC) */
 
   update_approx_time(time(NULL));
   options = options_new();
   tor_threads_init();
+  tor_compress_init();
 
   network_init();
 
@@ -304,9 +305,14 @@ main(int c, const char **v)
     tor_free(errmsg);
     return 1;
   }
+
   tor_set_failed_assertion_callback(an_assertion_failed);
 
   init_pregenerated_keys();
+
+  channelpadding_new_consensus_params(NULL);
+
+  predicted_ports_init();
 
   atexit(remove_directory);
 

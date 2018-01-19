@@ -1,7 +1,7 @@
 /* Copyright (c) 2001, Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_CRYPTO_FORMAT_H
@@ -43,5 +43,5 @@ int digest_from_base64(char *digest, const char *d64);
 int digest256_to_base64(char *d64, const char *digest);
 int digest256_from_base64(char *digest, const char *d64);
 
-#endif
+#endif /* !defined(TOR_CRYPTO_FORMAT_H) */
 

@@ -1,6 +1,6 @@
 /* Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 extern const char tor_git_revision[];
@@ -28,6 +28,7 @@ const char tor_git_revision[] = "";
 #include "crypto_curve25519.h"
 #include "onion_ntor.h"
 #include "crypto_ed25519.h"
+#include "consdiff.h"
 
 #if defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_PROCESS_CPUTIME_ID)
 static uint64_t nanostart;
@@ -57,7 +58,7 @@ perftime(void)
   return timespec_to_nsec(&ts) - nanostart;
 }
 
-#else
+#else /* !(defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_PROCESS_CPUTIME_ID)) */
 static struct timeval tv_start = { 0, 0 };
 static void
 reset_perftime(void)
@@ -72,7 +73,7 @@ perftime(void)
   timersub(&now, &tv_start, &out);
   return ((uint64_t)out.tv_sec)*1000000000 + out.tv_usec*1000;
 }
-#endif
+#endif /* defined(HAVE_CLOCK_GETTIME) && defined(CLOCK_PROCESS_CPUTIME_ID) */
 
 #define NANOCOUNT(start,end,iters) \
   ( ((double)((end)-(start))) / (iters) )
@@ -199,6 +200,7 @@ bench_onion_ntor_impl(void)
   curve25519_public_key_generate(&keypair2.pubkey, &keypair2.seckey);
   dimap_add_entry(&keymap, keypair1.pubkey.public_key, &keypair1);
   dimap_add_entry(&keymap, keypair2.pubkey.public_key, &keypair2);
+  crypto_rand((char *)nodeid, sizeof(nodeid));
 
   reset_perftime();
   start = perftime();
@@ -673,6 +675,28 @@ main(int argc, const char **argv)
   or_options_t *options;
 
   tor_threads_init();
+  tor_compress_init();
+
+  if (argc == 4 && !strcmp(argv[1], "diff")) {
+    init_logging(1);
+    const int N = 200;
+    char *f1 = read_file_to_str(argv[2], RFTS_BIN, NULL);
+    char *f2 = read_file_to_str(argv[3], RFTS_BIN, NULL);
+    if (! f1 || ! f2) {
+      perror("X");
+      return 1;
+    }
+    for (i = 0; i < N; ++i) {
+      char *diff = consensus_diff_generate(f1, f2);
+      tor_free(diff);
+    }
+    char *diff = consensus_diff_generate(f1, f2);
+    printf("%s", diff);
+    tor_free(f1);
+    tor_free(f2);
+    tor_free(diff);
+    return 0;
+  }
 
   for (i = 1; i < argc; ++i) {
     if (!strcmp(argv[i], "--list")) {

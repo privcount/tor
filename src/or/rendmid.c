@@ -1,5 +1,5 @@
 /* Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -78,7 +78,6 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
     goto err;
   }
   /* Rest of body: signature of previous data */
-  note_crypto_pk_op(REND_MID);
   if (crypto_pk_public_checksig_digest(pk,
                                        (char*)request, 2+asn1len+DIGEST_LEN,
                                        (char*)(request+2+DIGEST_LEN+asn1len),
@@ -105,7 +104,8 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
 
   /* Close any other intro circuits with the same pk. */
   c = NULL;
-  while ((c = hs_circuitmap_get_intro_circ_v2((const uint8_t *)pk_digest))) {
+  while ((c = hs_circuitmap_get_intro_circ_v2_relay_side(
+                                                (const uint8_t *)pk_digest))) {
     log_info(LD_REND, "Replacing old circuit for service %s",
              safe_str(serviceid));
     circ->privcount_circuit_failure_reason = "ReplaceOldCircuit";
@@ -121,7 +121,7 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
 
   /* Now, set up this circuit. */
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_INTRO_POINT);
-  hs_circuitmap_register_intro_circ_v2(circ, (uint8_t *)pk_digest);
+  hs_circuitmap_register_intro_circ_v2_relay_side(circ, (uint8_t *)pk_digest);
 
   log_info(LD_REND,
            "Established introduction point on circuit %u for service %s",
@@ -177,7 +177,8 @@ rend_mid_introduce_legacy(or_circuit_t *circ, const uint8_t *request,
 
   /* The first 20 bytes are all we look at: they have a hash of the service's
    * PK. */
-  intro_circ = hs_circuitmap_get_intro_circ_v2((const uint8_t*)request);
+  intro_circ = hs_circuitmap_get_intro_circ_v2_relay_side(
+                                                      (const uint8_t*)request);
   if (!intro_circ) {
     log_info(LD_REND,
              "No intro circ found for INTRODUCE1 cell (%s) from circuit %u; "
@@ -260,7 +261,7 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     goto err;
   }
 
-  if (hs_circuitmap_get_rend_circ(request)) {
+  if (hs_circuitmap_get_rend_circ_relay_side(request)) {
     log_warn(LD_PROTOCOL,
              "Duplicate rendezvous cookie in ESTABLISH_RENDEZVOUS.");
     circ->privcount_circuit_failure_reason = "DuplicateCell";
@@ -281,7 +282,7 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
   circ->privcount_circuit_client_rend = 1;
 
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_POINT_WAITING);
-  hs_circuitmap_register_rend_circ(circ, request);
+  hs_circuitmap_register_rend_circ_relay_side(circ, request);
 
   base16_encode(hexid,9,(char*)request,4);
 
@@ -332,7 +333,7 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
            "Got request for rendezvous from circuit %u to cookie %s.",
            (unsigned)circ->p_circ_id, hexid);
 
-  rend_circ = hs_circuitmap_get_rend_circ(request);
+  rend_circ = hs_circuitmap_get_rend_circ_relay_side(request);
   if (!rend_circ) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
          "Rejecting RENDEZVOUS1 cell with unrecognized rendezvous cookie %s.",
@@ -385,7 +386,7 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_ESTABLISHED);
   circuit_change_purpose(TO_CIRCUIT(rend_circ),
                          CIRCUIT_PURPOSE_REND_ESTABLISHED);
-  hs_circuitmap_remove_circuit(circ);
+  hs_circuitmap_remove_circuit(TO_CIRCUIT(circ));
 
   rend_circ->rend_splice = circ;
   circ->rend_splice = rend_circ;

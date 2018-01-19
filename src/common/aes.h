@@ -1,6 +1,6 @@
 /* Copyright (c) 2003, Roger Dingledine
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /* Implements a minimal interface to counter-mode AES. */
@@ -23,5 +23,5 @@ void aes_crypt_inplace(aes_cnt_cipher_t *cipher, char *data, size_t len);
 int evaluate_evp_for_aes(int force_value);
 int evaluate_ctr_for_aes(void);
 
-#endif
+#endif /* !defined(TOR_AES_H) */
 

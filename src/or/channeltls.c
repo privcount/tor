@@ -1,4 +1,4 @@
-/* * Copyright (c) 2012-2016, The Tor Project, Inc. */
+/* * Copyright (c) 2012-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -57,6 +57,9 @@
 #include "routerlist.h"
 #include "scheduler.h"
 #include "torcert.h"
+#include "networkstatus.h"
+#include "channelpadding_negotiation.h"
+#include "channelpadding.h"
 
 /** How many CELL_PADDING cells have we received, ever? */
 uint64_t stats_n_padding_cells_processed = 0;
@@ -122,6 +125,8 @@ static void channel_tls_process_netinfo_cell(cell_t *cell,
 static int command_allowed_before_handshake(uint8_t command);
 static int enter_v3_handshake_with_cell(var_cell_t *cell,
                                         channel_tls_t *tlschan);
+static void channel_tls_process_padding_negotiate_cell(cell_t *cell,
+                                                       channel_tls_t *chan);
 
 /**
  * Do parts of channel_tls_t initialization common to channel_tls_connect()
@@ -734,6 +739,15 @@ channel_tls_matches_target_method(channel_t *chan,
     return 0;
   }
 
+  /* real_addr is the address this connection came from.
+   * base_.addr is updated by connection_or_init_conn_from_address()
+   * to be the address in the descriptor. It may be tempting to
+   * allow either address to be allowed, but if we did so, it would
+   * enable someone who steals a relay's keys to impersonate/MITM it
+   * from anywhere on the Internet! (Because they could make long-lived
+   * TLS connections from anywhere to all relays, and wait for them to
+   * be used for extends).
+   */
   return tor_addr_eq(&(tlschan->conn->real_addr), target);
 }
 
@@ -833,7 +847,7 @@ channel_tls_write_packed_cell_method(channel_t *chan,
   tor_assert(packed_cell);
 
   if (tlschan->conn) {
-    connection_write_to_buf(packed_cell->body, cell_network_size,
+    connection_buf_add(packed_cell->body, cell_network_size,
                             TO_CONN(tlschan->conn));
 
     /* This is where the cell is finished; used to be done from relay.c */
@@ -979,7 +993,7 @@ channel_tls_handle_state_change_on_orconn(channel_tls_t *chan,
      * We can go to CHANNEL_STATE_OPEN from CHANNEL_STATE_OPENING or
      * CHANNEL_STATE_MAINT on this.
      */
-    channel_change_state(base_chan, CHANNEL_STATE_OPEN);
+    channel_change_state_open(base_chan);
     /* We might have just become writeable; check and tell the scheduler */
     if (connection_or_num_cells_writeable(conn) > 0) {
       scheduler_channel_wants_writes(base_chan);
@@ -1030,7 +1044,7 @@ channel_tls_time_process_cell(cell_t *cell, channel_tls_t *chan, int *time,
 
   *time += time_passed;
 }
-#endif
+#endif /* defined(KEEP_TIMING_STATS) */
 
 /**
  * Handle an incoming cell on a channel_tls_t
@@ -1058,9 +1072,9 @@ channel_tls_handle_cell(cell_t *cell, or_connection_t *conn)
     channel_tls_time_process_cell(cl, cn, & tp ## time ,            \
                              channel_tls_process_ ## tp ## _cell);  \
     } STMT_END
-#else
+#else /* !(defined(KEEP_TIMING_STATS)) */
 #define PROCESS_CELL(tp, cl, cn) channel_tls_process_ ## tp ## _cell(cl, cn)
-#endif
+#endif /* defined(KEEP_TIMING_STATS) */
 
   tor_assert(cell);
   tor_assert(conn);
@@ -1098,9 +1112,16 @@ channel_tls_handle_cell(cell_t *cell, or_connection_t *conn)
   /* We note that we're on the internet whenever we read a cell. This is
    * a fast operation. */
   entry_guards_note_internet_connectivity(get_guard_selection_info());
+  rep_hist_padding_count_read(PADDING_TYPE_TOTAL);
+
+  if (TLS_CHAN_TO_BASE(chan)->currently_padding)
+    rep_hist_padding_count_read(PADDING_TYPE_ENABLED_TOTAL);
 
   switch (cell->command) {
     case CELL_PADDING:
+      rep_hist_padding_count_read(PADDING_TYPE_CELL);
+      if (TLS_CHAN_TO_BASE(chan)->currently_padding)
+        rep_hist_padding_count_read(PADDING_TYPE_ENABLED_CELL);
       ++stats_n_padding_cells_processed;
       /* do nothing */
       break;
@@ -1110,6 +1131,10 @@ channel_tls_handle_cell(cell_t *cell, or_connection_t *conn)
     case CELL_NETINFO:
       ++stats_n_netinfo_cells_processed;
       PROCESS_CELL(netinfo, cell, chan);
+      break;
+    case CELL_PADDING_NEGOTIATE:
+      ++stats_n_netinfo_cells_processed;
+      PROCESS_CELL(padding_negotiate, cell, chan);
       break;
     case CELL_CREATE:
     case CELL_CREATE_FAST:
@@ -1179,7 +1204,7 @@ channel_tls_handle_var_cell(var_cell_t *var_cell, or_connection_t *conn)
     /* remember which second it is, for next time */
     current_second = now;
   }
-#endif
+#endif /* defined(KEEP_TIMING_STATS) */
 
   tor_assert(var_cell);
   tor_assert(conn);
@@ -1554,7 +1579,7 @@ channel_tls_process_versions_cell(var_cell_t *cell, channel_tls_t *chan)
       connection_or_close_normally(chan->conn, 1);
       return;
     }
-#endif
+#endif /* defined(DISABLE_V3_LINKPROTO_SERVERSIDE) */
 
     if (send_versions) {
       if (connection_or_send_versions(chan->conn, 1) < 0) {
@@ -1566,9 +1591,12 @@ channel_tls_process_versions_cell(var_cell_t *cell, channel_tls_t *chan)
 
     /* We set this after sending the verions cell. */
     /*XXXXX symbolic const.*/
-    chan->base_.wide_circ_ids =
+    TLS_CHAN_TO_BASE(chan)->wide_circ_ids =
       chan->conn->link_proto >= MIN_LINK_PROTO_FOR_WIDE_CIRC_IDS;
-    chan->conn->wide_circ_ids = chan->base_.wide_circ_ids;
+    chan->conn->wide_circ_ids = TLS_CHAN_TO_BASE(chan)->wide_circ_ids;
+
+    TLS_CHAN_TO_BASE(chan)->padding_enabled =
+      chan->conn->link_proto >= MIN_LINK_PROTO_FOR_CHANNEL_PADDING;
 
     if (send_certs) {
       if (connection_or_send_certs_cell(chan->conn) < 0) {
@@ -1595,6 +1623,43 @@ channel_tls_process_versions_cell(var_cell_t *cell, channel_tls_t *chan)
 }
 
 /**
+ * Process a 'padding_negotiate' cell
+ *
+ * This function is called to handle an incoming PADDING_NEGOTIATE cell;
+ * enable or disable padding accordingly, and read and act on its timeout
+ * value contents.
+ */
+static void
+channel_tls_process_padding_negotiate_cell(cell_t *cell, channel_tls_t *chan)
+{
+  channelpadding_negotiate_t *negotiation;
+  tor_assert(cell);
+  tor_assert(chan);
+  tor_assert(chan->conn);
+
+  if (chan->conn->link_proto < MIN_LINK_PROTO_FOR_CHANNEL_PADDING) {
+    log_fn(LOG_PROTOCOL_WARN, LD_OR,
+           "Received a PADDING_NEGOTIATE cell on v%d connection; dropping.",
+           chan->conn->link_proto);
+    return;
+  }
+
+  if (channelpadding_negotiate_parse(&negotiation, cell->payload,
+                                     CELL_PAYLOAD_SIZE) < 0) {
+    log_fn(LOG_PROTOCOL_WARN, LD_OR,
+          "Received malformed PADDING_NEGOTIATE cell on v%d connection; "
+          "dropping.", chan->conn->link_proto);
+
+    return;
+  }
+
+  channelpadding_update_padding_for_channel(TLS_CHAN_TO_BASE(chan),
+                                            negotiation);
+
+  channelpadding_negotiate_free(negotiation);
+}
+
+/**
  * Process a 'netinfo' cell
  *
  * This function is called to handle an incoming NETINFO cell; read and act
@@ -1611,9 +1676,12 @@ channel_tls_process_netinfo_cell(cell_t *cell, channel_tls_t *chan)
   const uint8_t *cp, *end;
   uint8_t n_other_addrs;
   time_t now = time(NULL);
+  const routerinfo_t *me = router_get_my_routerinfo();
 
   long apparent_skew = 0;
   tor_addr_t my_apparent_addr = TOR_ADDR_NULL;
+  int started_here = 0;
+  const char *identity_digest = NULL;
 
   tor_assert(cell);
   tor_assert(chan);
@@ -1633,10 +1701,12 @@ channel_tls_process_netinfo_cell(cell_t *cell, channel_tls_t *chan)
   }
   tor_assert(chan->conn->handshake_state &&
              chan->conn->handshake_state->received_versions);
+  started_here = connection_or_nonopen_was_started_here(chan->conn);
+  identity_digest = chan->conn->identity_digest;
 
   if (chan->conn->base_.state == OR_CONN_STATE_OR_HANDSHAKING_V3) {
     tor_assert(chan->conn->link_proto >= 3);
-    if (chan->conn->handshake_state->started_here) {
+    if (started_here) {
       if (!(chan->conn->handshake_state->authenticated)) {
         log_fn(LOG_PROTOCOL_WARN, LD_OR,
                "Got a NETINFO cell from server, "
@@ -1693,8 +1763,20 @@ channel_tls_process_netinfo_cell(cell_t *cell, channel_tls_t *chan)
 
   if (my_addr_type == RESOLVED_TYPE_IPV4 && my_addr_len == 4) {
     tor_addr_from_ipv4n(&my_apparent_addr, get_uint32(my_addr_ptr));
+
+    if (!get_options()->BridgeRelay && me &&
+        get_uint32(my_addr_ptr) == htonl(me->addr)) {
+      TLS_CHAN_TO_BASE(chan)->is_canonical_to_peer = 1;
+    }
+
   } else if (my_addr_type == RESOLVED_TYPE_IPV6 && my_addr_len == 16) {
     tor_addr_from_ipv6_bytes(&my_apparent_addr, (const char *) my_addr_ptr);
+
+    if (!get_options()->BridgeRelay && me &&
+        !tor_addr_is_null(&me->ipv6_addr) &&
+        tor_addr_eq(&my_apparent_addr, &me->ipv6_addr)) {
+      TLS_CHAN_TO_BASE(chan)->is_canonical_to_peer = 1;
+    }
   }
 
   n_other_addrs = (uint8_t) *cp++;
@@ -1710,6 +1792,13 @@ channel_tls_process_netinfo_cell(cell_t *cell, channel_tls_t *chan)
       connection_or_close_for_error(chan->conn, 0);
       return;
     }
+    /* A relay can connect from anywhere and be canonical, so
+     * long as it tells you from where it came. This may sound a bit
+     * concerning... but that's what "canonical" means: that the
+     * address is one that the relay itself has claimed.  The relay
+     * might be doing something funny, but nobody else is doing a MITM
+     * on the relay's TCP.
+     */
     if (tor_addr_eq(&addr, &(chan->conn->real_addr))) {
       connection_or_set_canonical(chan->conn, 1);
       break;
@@ -1718,11 +1807,27 @@ channel_tls_process_netinfo_cell(cell_t *cell, channel_tls_t *chan)
     --n_other_addrs;
   }
 
+  if (me && !TLS_CHAN_TO_BASE(chan)->is_canonical_to_peer &&
+      channel_is_canonical(TLS_CHAN_TO_BASE(chan))) {
+    const char *descr =
+      TLS_CHAN_TO_BASE(chan)->get_remote_descr(TLS_CHAN_TO_BASE(chan), 0);
+    log_info(LD_OR,
+             "We made a connection to a relay at %s (fp=%s) but we think "
+             "they will not consider this connection canonical. They "
+             "think we are at %s, but we think its %s.",
+             safe_str(descr),
+             safe_str(hex_str(identity_digest, DIGEST_LEN)),
+             safe_str(tor_addr_is_null(&my_apparent_addr) ?
+             "<none>" : fmt_and_decorate_addr(&my_apparent_addr)),
+             safe_str(fmt_addr32(me->addr)));
+  }
+
   /* Act on apparent skew. */
   /** Warn when we get a netinfo skew with at least this value. */
 #define NETINFO_NOTICE_SKEW 3600
   if (labs(apparent_skew) > NETINFO_NOTICE_SKEW &&
-      router_get_by_id_digest(chan->conn->identity_digest)) {
+      (started_here ||
+       connection_or_digest_is_known_relay(chan->conn->identity_digest))) {
     int trusted = router_digest_is_trusted_dir(chan->conn->identity_digest);
     clock_skew_warning(TO_CONN(chan->conn), apparent_skew, trusted, LD_GENERAL,
                        "NETINFO cell", "OR");
@@ -1756,8 +1861,7 @@ channel_tls_process_netinfo_cell(cell_t *cell, channel_tls_t *chan)
              safe_str_client(chan->conn->base_.address),
              chan->conn->base_.port,
              (int)(chan->conn->link_proto),
-             hex_str(TLS_CHAN_TO_BASE(chan)->identity_digest,
-                     DIGEST_LEN),
+             hex_str(identity_digest, DIGEST_LEN),
              tor_addr_is_null(&my_apparent_addr) ?
              "<none>" : fmt_and_decorate_addr(&my_apparent_addr));
   }
@@ -1814,7 +1918,6 @@ certs_cell_typenum_to_cert_type(int typenum)
  * of the connection, we then authenticate the server or mark the connection.
  * If it's the server side, wait for an AUTHENTICATE cell.
  */
-
 STATIC void
 channel_tls_process_certs_cell(var_cell_t *cell, channel_tls_t *chan)
 {
@@ -1829,7 +1932,7 @@ channel_tls_process_certs_cell(var_cell_t *cell, channel_tls_t *chan)
   int n_certs, i;
   certs_cell_t *cc = NULL;
 
-  int send_netinfo = 0;
+  int send_netinfo = 0, started_here = 0;
 
   memset(x509_certs, 0, sizeof(x509_certs));
   memset(ed_certs, 0, sizeof(ed_certs));
@@ -1846,6 +1949,11 @@ channel_tls_process_certs_cell(var_cell_t *cell, channel_tls_t *chan)
     connection_or_close_for_error(chan->conn, 0);               \
     goto err;                                                   \
   } while (0)
+
+  /* Can't use connection_or_nonopen_was_started_here(); its conn->tls
+   * check looks like it breaks
+   * test_link_handshake_recv_certs_ok_server().  */
+  started_here = chan->conn->handshake_state->started_here;
 
   if (chan->conn->base_.state != OR_CONN_STATE_OR_HANDSHAKING_V3)
     ERR("We're not doing a v3 handshake!");
@@ -1960,7 +2068,7 @@ channel_tls_process_certs_cell(var_cell_t *cell, channel_tls_t *chan)
   /* Note that this warns more loudly about time and validity if we were
    * _trying_ to connect to an authority, not necessarily if we _did_ connect
    * to one. */
-  if (chan->conn->handshake_state->started_here &&
+  if (started_here &&
       router_digest_is_trusted_dir(TLS_CHAN_TO_BASE(chan)->identity_digest))
     severity = LOG_WARN;
   else
@@ -1978,7 +2086,7 @@ channel_tls_process_certs_cell(var_cell_t *cell, channel_tls_t *chan)
   if (!checked_rsa_id)
     ERR("Invalid certificate chain!");
 
-  if (chan->conn->handshake_state->started_here) {
+  if (started_here) {
     /* No more information is needed. */
 
     chan->conn->handshake_state->authenticated = 1;

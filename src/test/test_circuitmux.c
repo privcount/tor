@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2016, The Tor Project, Inc. */
+/* Copyright (c) 2013-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #define TOR_CHANNEL_INTERNAL_
@@ -49,8 +49,8 @@ test_cmux_destroy_cell_queue(void *arg)
   ch->wide_circ_ids = 1;
 
   circ = circuitmux_get_first_active_circuit(cmux, &cq);
-  tt_assert(!circ);
-  tt_assert(!cq);
+  tt_ptr_op(circ, OP_EQ, NULL);
+  tt_ptr_op(cq, OP_EQ, NULL);
 
   circuitmux_append_destroy_cell(ch, cmux, 100, 10);
   circuitmux_append_destroy_cell(ch, cmux, 190, 6);
@@ -59,7 +59,7 @@ test_cmux_destroy_cell_queue(void *arg)
   tt_int_op(circuitmux_num_cells(cmux), OP_EQ, 3);
 
   circ = circuitmux_get_first_active_circuit(cmux, &cq);
-  tt_assert(!circ);
+  tt_ptr_op(circ, OP_EQ, NULL);
   tt_assert(cq);
 
   tt_int_op(cq->n, OP_EQ, 3);

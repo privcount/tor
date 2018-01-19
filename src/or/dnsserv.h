@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -23,5 +23,5 @@ void dnsserv_reject_request(entry_connection_t *conn);
 int dnsserv_launch_request(const char *name, int is_reverse,
                            control_connection_t *control_conn);
 
-#endif
+#endif /* !defined(TOR_DNSSERV_H) */
 

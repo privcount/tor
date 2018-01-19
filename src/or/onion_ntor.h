@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Tor Project, Inc. */
+/* Copyright (c) 2012-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_ONION_NTOR_H
@@ -55,7 +55,7 @@ struct ntor_handshake_state_t {
   curve25519_public_key_t pubkey_X;
   /** @} */
 };
-#endif
+#endif /* defined(ONION_NTOR_PRIVATE) */
 
-#endif
+#endif /* !defined(TOR_ONION_NTOR_H) */
 

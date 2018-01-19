@@ -1,6 +1,6 @@
 /* Copyright (c) 2003, Roger Dingledine
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -12,6 +12,10 @@
 #include "torlog.h"
 #include "backtrace.h"
 #include "container.h"
+
+#ifdef __COVERITY__
+int bug_macro_deadcode_dummy__ = 0;
+#endif
 
 #ifdef TOR_UNIT_TESTS
 static void (*failed_assertion_cb)(void) = NULL;
@@ -55,10 +59,10 @@ tor_set_failed_assertion_callback(void (*fn)(void))
 {
   failed_assertion_cb = fn;
 }
-#else
+#else /* !(defined(TOR_UNIT_TESTS)) */
 #define capturing_bugs() (0)
 #define add_captured_bug(s) do { } while (0)
-#endif
+#endif /* defined(TOR_UNIT_TESTS) */
 
 /** Helper for tor_assert: report the assertion failure. */
 void

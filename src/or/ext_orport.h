@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef EXT_ORPORT_H
@@ -36,7 +36,7 @@ STATIC int handle_client_auth_nonce(const char *client_nonce,
 extern uint8_t *ext_or_auth_cookie;
 extern int ext_or_auth_cookie_is_set;
 #endif
-#endif
+#endif /* defined(EXT_ORPORT_PRIVATE) */
 
-#endif
+#endif /* !defined(EXT_ORPORT_H) */
 

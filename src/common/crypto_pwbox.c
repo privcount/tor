@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Tor Project, Inc. */
+/* Copyright (c) 2014-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -107,7 +107,6 @@ crypto_pwbox(uint8_t **out, size_t *outlen_out,
   rv = 0;
   goto out;
 
- err:
   /* LCOV_EXCL_START
 
      This error case is often unreachable if we're correctly coded, unless
@@ -123,6 +122,7 @@ crypto_pwbox(uint8_t **out, size_t *outlen_out,
        - pwbox_encoded_encode can't fail unless we're using trunnel wrong,
          or it's buggy.
    */
+ err:
   tor_free(result);
   rv = -1;
   /* LCOV_EXCL_STOP */

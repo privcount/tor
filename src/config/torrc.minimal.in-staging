@@ -1,5 +1,5 @@
 ## Configuration file for a typical Tor user
-## Last updated 22 September 2015 for Tor 0.2.7.3-alpha.
+## Last updated 22 December 2017 for Tor 0.3.2.8-rc.
 ## (may or may not work for much older or much newer versions of Tor.)
 ##
 ## Lines that begin with "## " try to explain what's going on. Lines
@@ -132,6 +132,9 @@
 ## spammers might also collect them. You may want to obscure the fact that
 ## it's an email address and/or generate a new address for this purpose.
 ## Notice that "<" and ">" are recommended.
+##
+## If you are running multiple relays, you MUST set this option.
+##
 #ContactInfo Random Person <nobody AT example dot com>
 ## You might also include your PGP or GPG fingerprint if you have one.
 ## Use the full fingerprint, not just a (short) KeyID: KeyIDs are easy
@@ -161,7 +164,14 @@
 ## See https://www.torproject.org/docs/faq#MultipleRelays
 ## However, you should never include a bridge's fingerprint here, as it would
 ## break its concealability and potentially reveal its IP/TCP address.
+##
+## If you are running multiple relays, you MUST set this option.
+##
 #MyFamily $keyid,$keyid,...
+
+## Uncomment this if you want your relay to allow IPv6 exit traffic.
+## (Relays only allow IPv4 exit traffic by default.)
+#IPv6Exit 1
 
 ## A comma-separated list of exit policies. They're considered first
 ## to last, and the first match wins.

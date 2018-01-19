@@ -1,4 +1,4 @@
-/* Copyright (c) 2016, The Tor Project, Inc. */
+/* Copyright (c) 2016-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_SHARED_RANDOM_H
@@ -36,17 +36,14 @@
 
 /* Length of base64 encoded commit NOT including the NUL terminated byte.
  * Formula is taken from base64_encode_size. This adds up to 56 bytes. */
-#define SR_COMMIT_BASE64_LEN \
-  (((SR_COMMIT_LEN - 1) / 3) * 4 + 4)
+#define SR_COMMIT_BASE64_LEN (BASE64_LEN(SR_COMMIT_LEN))
 /* Length of base64 encoded reveal NOT including the NUL terminated byte.
  * Formula is taken from base64_encode_size. This adds up to 56 bytes. */
-#define SR_REVEAL_BASE64_LEN \
-  (((SR_REVEAL_LEN - 1) / 3) * 4 + 4)
+#define SR_REVEAL_BASE64_LEN (BASE64_LEN(SR_REVEAL_LEN))
 /* Length of base64 encoded shared random value. It's 32 bytes long so 44
  * bytes from the base64_encode_size formula. That includes the '='
  * character at the end. */
-#define SR_SRV_VALUE_BASE64_LEN \
-  (((DIGEST256_LEN - 1) / 3) * 4 + 4)
+#define SR_SRV_VALUE_BASE64_LEN (BASE64_LEN(DIGEST256_LEN))
 
 /* Assert if commit valid flag is not set. */
 #define ASSERT_COMMIT_VALID(c) tor_assert((c)->valid)
@@ -133,6 +130,9 @@ sr_commit_t *sr_generate_our_commit(time_t timestamp,
 char *sr_get_current_for_control(void);
 char *sr_get_previous_for_control(void);
 
+const sr_srv_t *sr_get_current(const networkstatus_t *ns);
+const sr_srv_t *sr_get_previous(const networkstatus_t *ns);
+
 #ifdef SHARED_RANDOM_PRIVATE
 
 /* Encode */
@@ -160,7 +160,7 @@ STATIC int should_keep_commit(const sr_commit_t *commit,
                               sr_phase_t phase);
 STATIC void save_commit_during_reveal_phase(const sr_commit_t *commit);
 
-#endif /* SHARED_RANDOM_PRIVATE */
+#endif /* defined(SHARED_RANDOM_PRIVATE) */
 
 #ifdef TOR_UNIT_TESTS
 
@@ -168,5 +168,5 @@ void set_num_srv_agreements(int32_t value);
 
 #endif /* TOR_UNIT_TESTS */
 
-#endif /* TOR_SHARED_RANDOM_H */
+#endif /* !defined(TOR_SHARED_RANDOM_H) */
 

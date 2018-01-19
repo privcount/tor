@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -18,6 +18,10 @@
 #define KERNEL_MAY_SUPPORT_IPFW
 #endif
 
+/** Lowest allowable value for HeartbeatPeriod; if this is too low, we might
+ * expose more information than we're comfortable with. */
+#define MIN_HEARTBEAT_PERIOD (30*60)
+
 MOCK_DECL(const char*, get_dirportfrontpage, (void));
 MOCK_DECL(const or_options_t *, get_options, (void));
 MOCK_DECL(or_options_t *, get_options_mutable, (void));
@@ -27,6 +31,7 @@ const char *safe_str_client(const char *address);
 const char *safe_str(const char *address);
 const char *escaped_safe_str_client(const char *address);
 const char *escaped_safe_str(const char *address);
+int get_protocol_warning_severity_level(void);
 const char *get_version(void);
 const char *get_short_version(void);
 setopt_err_t options_trial_assign(config_line_t *list, unsigned flags,
@@ -157,7 +162,7 @@ smartlist_t *get_options_for_server_transport(const char *transport);
 
 #define CL_PORT_NO_STREAM_OPTIONS (1u<<0)
 #define CL_PORT_WARN_NONLOCAL (1u<<1)
-#define CL_PORT_ALLOW_EXTRA_LISTENADDR (1u<<2)
+/* Was CL_PORT_ALLOW_EXTRA_LISTENADDR (1u<<2) */
 #define CL_PORT_SERVER_OPTIONS (1u<<3)
 #define CL_PORT_FORBID_NONLOCAL (1u<<4)
 #define CL_PORT_TAKES_HOSTNAMES (1u<<5)
@@ -193,13 +198,14 @@ STATIC int have_enough_mem_for_dircache(const or_options_t *options,
                                         size_t total_mem, char **msg);
 STATIC int parse_port_config(smartlist_t *out,
                   const config_line_t *ports,
-                  const config_line_t *listenaddrs,
                   const char *portname,
                   int listener_type,
                   const char *defaultaddr,
                   int defaultport,
                   const unsigned flags);
-#endif
 
-#endif
+STATIC int check_bridge_distribution_setting(const char *bd);
+#endif /* defined(CONFIG_PRIVATE) */
+
+#endif /* !defined(TOR_CONFIG_H) */
 

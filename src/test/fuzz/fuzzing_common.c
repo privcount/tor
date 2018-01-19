@@ -1,4 +1,4 @@
-/* Copyright (c) 2016, The Tor Project, Inc. */
+/* Copyright (c) 2016-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 #define CRYPTO_ED25519_PRIVATE
 #include "orconfig.h"
@@ -28,8 +28,9 @@ mock_crypto_pk_public_checksig__nocheck(const crypto_pk_t *env, char *to,
   (void)fromlen;
   /* We could look at from[0..fromlen-1] ... */
   tor_assert(tolen >= crypto_pk_keysize(env));
-  memset(to, 0x01, 20);
-  return 20;
+  size_t siglen = MIN(20, crypto_pk_keysize(env));
+  memset(to, 0x01, siglen);
+  return (int)siglen;
 }
 
 static int
@@ -96,6 +97,7 @@ static void
 global_init(void)
 {
   tor_threads_init();
+  tor_compress_init();
   {
     struct sipkey sipkey = { 1337, 7331 };
     siphash_set_global_key(&sipkey);
@@ -106,7 +108,7 @@ global_init(void)
   configure_backtrace_handler(get_version());
 
   /* set up the options. */
-  mock_options = tor_malloc(sizeof(or_options_t));
+  mock_options = tor_malloc_zero(sizeof(or_options_t));
   MOCK(get_options, mock_get_options);
 
   /* Make BUG() and nonfatal asserts crash */

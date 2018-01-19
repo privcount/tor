@@ -1,6 +1,6 @@
 /* Copyright (c) 2003-2004, Roger Dingledine
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -45,7 +45,7 @@
 #else
 #define DMALLOC_PARAMS
 #define DMALLOC_ARGS
-#endif
+#endif /* defined(USE_DMALLOC) */
 
 /* Memory management */
 void *tor_malloc_(size_t size DMALLOC_PARAMS) ATTR_MALLOC;
@@ -72,7 +72,7 @@ extern int dmalloc_free(const char *file, const int line, void *pnt,
       (p)=NULL;                                     \
     }                                               \
   STMT_END
-#else
+#else /* !(defined(USE_DMALLOC)) */
 /** Release memory allocated by tor_malloc, tor_realloc, tor_strdup, etc.
  * Unlike the free() function, tor_free() will still work on NULL pointers,
  * and it sets the pointer value to NULL after freeing it.
@@ -86,7 +86,7 @@ extern int dmalloc_free(const char *file, const int line, void *pnt,
       (p)=NULL;                                                \
     }                                                          \
   STMT_END
-#endif
+#endif /* defined(USE_DMALLOC) */
 
 #define tor_malloc(size)       tor_malloc_(size DMALLOC_ARGS)
 #define tor_malloc_zero(size)  tor_malloc_zero_(size DMALLOC_ARGS)
@@ -109,19 +109,11 @@ extern int dmalloc_free(const char *file, const int line, void *pnt,
 
 void tor_log_mallinfo(int severity);
 
-/** Return the offset of <b>member</b> within the type <b>tp</b>, in bytes */
-#if defined(__GNUC__) && __GNUC__ > 3
-#define STRUCT_OFFSET(tp, member) __builtin_offsetof(tp, member)
-#else
- #define STRUCT_OFFSET(tp, member) \
-   ((off_t) (((char*)&((tp*)0)->member)-(char*)0))
-#endif
-
 /** Macro: yield a pointer to the field at position <b>off</b> within the
  * structure <b>st</b>.  Example:
  * <pre>
  *   struct a { int foo; int bar; } x;
- *   off_t bar_offset = STRUCT_OFFSET(struct a, bar);
+ *   off_t bar_offset = offsetof(struct a, bar);
  *   int *bar_p = STRUCT_VAR_P(&x, bar_offset);
  *   *bar_p = 3;
  * </pre>
@@ -138,7 +130,7 @@ void tor_log_mallinfo(int severity);
  * </pre>
  */
 #define SUBTYPE_P(p, subtype, basemember) \
-  ((void*) ( ((char*)(p)) - STRUCT_OFFSET(subtype, basemember) ))
+  ((void*) ( ((char*)(p)) - offsetof(subtype, basemember) ))
 
 /* Logic */
 /** Macro: true if two values have the same boolean value. */
@@ -163,9 +155,9 @@ int64_t clamp_double_to_int64(double number);
 void simplify_fraction64(uint64_t *numer, uint64_t *denom);
 
 /* Compute the CEIL of <b>a</b> divided by <b>b</b>, for nonnegative <b>a</b>
- * and positive <b>b</b>.  Works on integer types only. Not defined if a+b can
- * overflow. */
-#define CEIL_DIV(a,b) (((a)+(b)-1)/(b))
+ * and positive <b>b</b>.  Works on integer types only. Not defined if a+(b-1)
+ * can overflow. */
+#define CEIL_DIV(a,b) (((a)+((b)-1))/(b))
 
 /* Return <b>v</b> if it's between <b>min</b> and <b>max</b>.  Otherwise
  * return <b>min</b> if <b>v</b> is smaller than <b>min</b>, or <b>max</b> if
@@ -270,7 +262,7 @@ int format_time_interval(char *out, size_t out_len, long interval);
 #else
 time_t approx_time(void);
 void update_approx_time(time_t now);
-#endif
+#endif /* defined(TIME_IS_FAST) */
 
 /* Rate-limiter */
 
@@ -323,7 +315,7 @@ enum stream_status {
 
 const char *stream_status_to_string(enum stream_status stream_status);
 
-enum stream_status get_string_from_pipe(FILE *stream, char *buf, size_t count);
+enum stream_status get_string_from_pipe(int fd, char *buf, size_t count);
 
 MOCK_DECL(int,tor_unlink,(const char *pathname));
 
@@ -390,9 +382,7 @@ char *read_file_to_str_until_eof(int fd, size_t max_bytes_to_read,
                                  size_t *sz_out)
   ATTR_MALLOC;
 const char *unescape_string(const char *s, char **result, size_t *size_out);
-const char *parse_config_line_from_str_verbose(const char *line,
-                                       char **key_out, char **value_out,
-                                       const char **err_out);
+char *get_unquoted_path(const char *path);
 char *expand_filename(const char *filename);
 MOCK_DECL(struct smartlist_t *, tor_listdir, (const char *dirname));
 int path_is_relative(const char *filename);
@@ -400,12 +390,14 @@ int path_is_relative(const char *filename);
 /* Process helpers */
 void start_daemon(void);
 void finish_daemon(const char *desired_cwd);
-void write_pidfile(const char *filename);
+int write_pidfile(const char *filename);
 
 /* Port forwarding */
 void tor_check_port_forwarding(const char *filename,
                                struct smartlist_t *ports_to_forward,
                                time_t now);
+
+void tor_disable_spawning_background_processes(void);
 
 typedef struct process_handle_t process_handle_t;
 typedef struct process_environment_t process_environment_t;
@@ -460,13 +452,10 @@ struct process_handle_t {
   HANDLE stdout_pipe;
   HANDLE stderr_pipe;
   PROCESS_INFORMATION pid;
-#else
+#else /* !(defined(_WIN32)) */
   int stdin_pipe;
   int stdout_pipe;
   int stderr_pipe;
-  FILE *stdin_handle;
-  FILE *stdout_handle;
-  FILE *stderr_handle;
   pid_t pid;
   /** If the process has not given us a SIGCHLD yet, this has the
    * waitpid_callback_t that gets invoked once it has. Otherwise this
@@ -474,9 +463,9 @@ struct process_handle_t {
   struct waitpid_callback_t *waitpid_cb;
   /** The exit status reported by waitpid. */
   int waitpid_exit_status;
-#endif // _WIN32
+#endif /* defined(_WIN32) */
 };
-#endif
+#endif /* defined(UTIL_PRIVATE) */
 
 /* Return values of tor_get_exit_code() */
 #define PROCESS_EXIT_RUNNING 1
@@ -489,10 +478,10 @@ int tor_split_lines(struct smartlist_t *sl, char *buf, int len);
 ssize_t tor_read_all_handle(HANDLE h, char *buf, size_t count,
                             const process_handle_t *process);
 #else
-ssize_t tor_read_all_handle(FILE *h, char *buf, size_t count,
+ssize_t tor_read_all_handle(int fd, char *buf, size_t count,
                             const process_handle_t *process,
                             int *eof);
-#endif
+#endif /* defined(_WIN32) */
 ssize_t tor_read_all_from_process_stdout(
     const process_handle_t *process_handle, char *buf, size_t count);
 ssize_t tor_read_all_from_process_stderr(
@@ -503,7 +492,7 @@ int tor_process_get_pid(process_handle_t *process_handle);
 #ifdef _WIN32
 HANDLE tor_process_get_stdout_pipe(process_handle_t *process_handle);
 #else
-FILE *tor_process_get_stdout_pipe(process_handle_t *process_handle);
+int tor_process_get_stdout_pipe(process_handle_t *process_handle);
 #endif
 
 #ifdef _WIN32
@@ -512,9 +501,9 @@ tor_get_lines_from_handle,(HANDLE *handle,
                            enum stream_status *stream_status));
 #else
 MOCK_DECL(struct smartlist_t *,
-tor_get_lines_from_handle,(FILE *handle,
+tor_get_lines_from_handle,(int fd,
                            enum stream_status *stream_status));
-#endif
+#endif /* defined(_WIN32) */
 
 int
 tor_terminate_process(process_handle_t *process_handle);
@@ -551,13 +540,13 @@ STATIC int format_helper_exit_status(unsigned char child_state,
    leading minus) and newline (no null) */
 #define HEX_ERRNO_SIZE (sizeof(char) * 2 + 1 + \
                         1 + sizeof(int) * 2 + 1)
-#endif
+#endif /* !defined(_WIN32) */
 
-#endif
+#endif /* defined(UTIL_PRIVATE) */
 
 int size_mul_check(const size_t x, const size_t y);
 
 #define ARRAY_LENGTH(x) ((sizeof(x)) / sizeof(x[0]))
 
-#endif
+#endif /* !defined(TOR_UTIL_H) */
 

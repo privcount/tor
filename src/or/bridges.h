@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -45,7 +45,6 @@ void bridge_add_from_config(struct bridge_line_t *bridge_line);
 void retry_bridge_descriptor_fetch_directly(const char *digest);
 void fetch_bridge_descriptors(const or_options_t *options, time_t now);
 void learned_bridge_descriptor(routerinfo_t *ri, int from_cache);
-int any_bridge_descriptors_known(void);
 const smartlist_t *get_socks_args_by_bridge_addrport(const tor_addr_t *addr,
                                                      uint16_t port);
 
@@ -66,5 +65,5 @@ MOCK_DECL(download_status_t *, get_bridge_dl_status_by_id,
 
 void bridges_free_all(void);
 
-#endif
+#endif /* !defined(TOR_BRIDGES_H) */
 

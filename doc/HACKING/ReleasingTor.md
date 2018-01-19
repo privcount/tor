@@ -8,7 +8,11 @@ new Tor release:
 === 0. Preliminaries
 
 1. Get at least three of weasel/arma/Sebastian/Sina to put the new
-   version number in their approved versions list.
+   version number in their approved versions list.  Give them a few
+   days to do this if you can.
+
+2. If this is going to be an important security release, give the packagers
+   some advance warning: See this list of packagers in IV.3 below.
 
 
 === I. Make sure it works
@@ -26,39 +30,37 @@ new Tor release:
 
    What about Coverity Scan?
 
-   Is make check-spaces happy?
+   What about clan scan-build?
 
    Does 'make distcheck' complain?
 
-   How about 'make test-stem' and 'make test-network'?
+   How about 'make test-stem' and 'make test-network' and
+   `make test-network-full`?
 
        - Are all those tests still happy with --enable-expensive-hardening ?
 
    Any memory leaks?
 
 
-=== II. Write a changelog.
+=== II. Write a changelog
 
 
-1. Gather the `changes/*` files into a changelog entry, rewriting many
+1a. (Alpha release variant)
+
+   Gather the `changes/*` files into a changelog entry, rewriting many
    of them and reordering to focus on what users and funders would find
    interesting and understandable.
 
-   1. Make sure that everything that wants a bug number has one.
-      Make sure that everything which is a bugfix says what version
-      it was a bugfix on.
+   To do this, first run `./scripts/maint/lintChanges.py changes/*` and
+   fix as many warnings as you can.  Then run `./scripts/maint/sortChanges.py
+   changes/* > changelog.in` to combine headings and sort the entries.
+   After that, it's time to hand-edit and fix the issues that lintChanges
+   can't find:
 
-   2. Concatenate them.
+   1. Within each section, sort by "version it's a bugfix on", else by
+      numerical ticket order.
 
-   3. Sort them by section. Within each section, sort by "version it's
-      a bugfix on", else by numerical ticket order.
-
-   4. Clean them up:
-
-      Standard idioms:
-      `Fixes bug 9999; bugfix on 0.3.3.3-alpha.`
-
-      One space after a period.
+   2. Clean them up:
 
       Make stuff very terse
 
@@ -86,19 +88,32 @@ new Tor release:
       maint-0.2.1), be sure to make the stanzas identical (so people can
       distinguish if these are the same change).
 
-   5. Merge them in.
+   3. Clean everything one last time.
 
-   6. Clean everything one last time.
+   4. Run `./scripts/maint/format_changelog.py --inplace` to make it prettier
 
-   7. Run `./scripts/maint/format_changelog.py` to make it prettier.
+1b. (old-stable release variant)
+
+   For stable releases that backport things from later, we try to compose
+   their releases, we try to make sure that we keep the changelog entries
+   identical to their original versions, with a 'backport from 0.x.y.z'
+   note added to each section.  So in this case, once you have the items
+   from the changes files copied together, don't use them to build a new
+   changelog: instead, look up the corrected versions that were merged
+   into ChangeLog in the master branch, and use those.
 
 2. Compose a short release blurb to highlight the user-facing
    changes. Insert said release blurb into the ChangeLog stanza. If it's
    a stable release, add it to the ReleaseNotes file too. If we're adding
-   to a release-0.2.x branch, manually commit the changelogs to the later
+   to a release-* branch, manually commit the changelogs to the later
    git branches too.
 
-3. If you're doing the first stable release in a series, you need to
+3. If there are changes that require or suggest operator intervention
+   before or during the update, mail operators (either dirauth or relays
+   list) with a headline that indicates that an action is required or
+   appreciated.
+
+4. If you're doing the first stable release in a series, you need to
    create a ReleaseNotes for the series as a whole.  To get started
    there, copy all of the Changelog entries from the series into a new
    file, and run `./scripts/maint/sortChanges.py` on it.  That will
@@ -111,51 +126,52 @@ new Tor release:
 
 === III. Making the source release.
 
-1. In `maint-0.2.x`, bump the version number in `configure.ac` and run
-   `scripts/maint/updateVersions.pl` to update version numbers in other
-   places, and commit.  Then merge `maint-0.2.x` into `release-0.2.x`.
+1. In `maint-0.?.x`, bump the version number in `configure.ac` and run
+   `perl scripts/maint/updateVersions.pl` to update version numbers in other
+   places, and commit.  Then merge `maint-0.?.x` into `release-0.?.x`.
 
    (NOTE: To bump the version number, edit `configure.ac`, and then run
    either `make`, or `perl scripts/maint/updateVersions.pl`, depending on
    your version.)
 
-2. Make distcheck, put the tarball up somewhere, and tell `#tor` about
-   it. Wait a while to see if anybody has problems building it. Try to
-   get Sebastian or somebody to try building it on Windows.
+2. Make distcheck, put the tarball up in somewhere (how about your
+   homedir on your homedir on people.torproject.org?) , and tell `#tor`
+   about it. Wait a while to see if anybody has problems building it.
+   (Though jenkins is usually pretty good about catching these things.)
 
 === IV. Commit, upload, announce
 
 1. Sign the tarball, then sign and push the git tag:
 
         gpg -ba <the_tarball>
-        git tag -u <keyid> tor-0.2.x.y-status
-        git push origin tag tor-0.2.x.y-status
+        git tag -u <keyid> tor-0.3.x.y-status
+        git push origin tag tor-0.3.x.y-status
 
 2. scp the tarball and its sig to the dist website, i.e.
    `/srv/dist-master.torproject.org/htdocs/` on dist-master. When you want
    it to go live, you run "static-update-component dist.torproject.org"
    on dist-master.
 
-   Edit `include/versions.wmi` and `Makefile` to note the new version.
+   In the webwml.git repository, `include/versions.wmi` and `Makefile`
+   to note the new version.
 
    (NOTE: Due to #17805, there can only be one stable version listed at
    once.  Nonetheless, do not call your version "alpha" if it is stable,
    or people will get confused.)
 
-3. Email the packagers (cc'ing tor-assistants) that a new tarball is up.
+3. Email the packagers (cc'ing tor-team) that a new tarball is up.
    The current list of packagers is:
 
        - {weasel,gk,mikeperry} at torproject dot org
        - {blueness} at gentoo dot org
        - {paul} at invizbox dot io
+       - {vincent} at invizbox dot com
        - {lfleischer} at archlinux dot org
        - {Nathan} at freitas dot net
        - {mike} at tig dot as
-       - {tails-rm} at boum dot org (for pre-release announcments)
-
-
-       - {tails-dev} at boum dot org (for at-release announcements)
-
+       - {tails-rm} at boum dot org
+       - {simon} at sdeziel.info
+       - {yuri} at rawbw.com
 
 4. Add the version number to Trac.  To do this, go to Trac, log in,
     select "Admin" near the top of the screen, then select "Versions" from
@@ -167,21 +183,21 @@ new Tor release:
 5. Mail the release blurb and ChangeLog to tor-talk (development release) or
    tor-announce (stable).
 
-   Post the changelog on the the blog as well. You can generate a
+   Post the changelog on the blog as well. You can generate a
    blog-formatted version of the changelog with the -B option to
    format-changelog.
 
-   When you post, include an estimate of when the next TorBrowser releases
-   will come out that include this Tor release.
+   When you post, include an estimate of when the next TorBrowser
+   releases will come out that include this Tor release.  This will
+   usually track https://wiki.mozilla.org/RapidRelease/Calendar , but it
+   can vary.
 
 
 === V. Aftermath and cleanup
 
-1. If it's a stable release, bump the version number in the `maint-x.y.z`
-    branch to "newversion-dev", and do a `merge -s ours` merge to avoid
-    taking that change into master.  Do a similar `merge -s theirs`
-    merge to get the change (and only that change) into release.  (Some
-    of the build scripts require that maint merge cleanly into release.)
+1. If it's a stable release, bump the version number in the
+    `maint-x.y.z` branch to "newversion-dev", and do a `merge -s ours`
+    merge to avoid taking that change into master.
 
 2. Forward-port the ChangeLog (and ReleaseNotes if appropriate).
 

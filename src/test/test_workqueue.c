@@ -1,6 +1,6 @@
 /* Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #include "or.h"
@@ -61,9 +61,9 @@ mark_handled(int serial)
   tor_assert(! bitarray_is_set(handled, serial));
   bitarray_set(handled, serial);
   tor_mutex_release(&bitmap_mutex);
-#else
+#else /* !(defined(TRACK_RESPONSES)) */
   (void)serial;
-#endif
+#endif /* defined(TRACK_RESPONSES) */
 }
 
 static workqueue_reply_t
@@ -200,7 +200,9 @@ add_work(threadpool_t *tp)
     crypto_rand((char*)w->msg, 20);
     w->msglen = 20;
     ++rsa_sent;
-    return threadpool_queue_work(tp, workqueue_do_rsa, handle_reply, w);
+    return threadpool_queue_work_priority(tp,
+                                          WQ_PRI_MED,
+                                          workqueue_do_rsa, handle_reply, w);
   } else {
     ecdh_work_t *w = tor_malloc_zero(sizeof(*w));
     w->serial = n_sent++;
@@ -286,7 +288,7 @@ replysock_readable_cb(tor_socket_t sock, short what, void *arg)
   }
   puts("");
   tor_mutex_release(&bitmap_mutex);
-#endif
+#endif /* defined(TRACK_RESPONSES) */
 
   if (n_sent - (n_received+n_successful_cancel) < opt_n_lowwater) {
     int n_to_send = n_received + opt_n_inflight - n_sent;
@@ -420,7 +422,7 @@ main(int argc, char **argv)
   received = bitarray_init_zero(opt_n_items);
   tor_mutex_init(&bitmap_mutex);
   handled_len = opt_n_items;
-#endif
+#endif /* defined(TRACK_RESPONSES) */
 
   for (i = 0; i < opt_n_inflight; ++i) {
     if (! add_work(tp)) {

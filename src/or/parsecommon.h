@@ -1,4 +1,4 @@
-/* Copyright (c) 2016, The Tor Project, Inc. */
+/* Copyright (c) 2016-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -157,12 +157,19 @@ typedef enum {
   R3_SUPERENCRYPTED,
   R3_SIGNATURE,
   R3_CREATE2_FORMATS,
-  R3_AUTHENTICATION_REQUIRED,
+  R3_INTRO_AUTH_REQUIRED,
   R3_SINGLE_ONION_SERVICE,
   R3_INTRODUCTION_POINT,
+  R3_INTRO_ONION_KEY,
   R3_INTRO_AUTH_KEY,
   R3_INTRO_ENC_KEY,
-  R3_INTRO_ENC_KEY_CERTIFICATION,
+  R3_INTRO_ENC_KEY_CERT,
+  R3_INTRO_LEGACY_KEY,
+  R3_INTRO_LEGACY_KEY_CERT,
+  R3_DESC_AUTH_TYPE,
+  R3_DESC_AUTH_KEY,
+  R3_DESC_AUTH_CLIENT,
+  R3_ENCRYPTED,
 
   R_IPO_IDENTIFIER,
   R_IPO_IP_ADDRESS,
@@ -309,7 +316,7 @@ directory_token_t *find_by_keyword_(smartlist_t *s,
 
 directory_token_t *find_opt_by_keyword(smartlist_t *s,
                                        directory_keyword keyword);
-smartlist_t * find_all_by_keyword(smartlist_t *s, directory_keyword k);
+smartlist_t * find_all_by_keyword(const smartlist_t *s, directory_keyword k);
 
-#endif /* TOR_PARSECOMMON_H */
+#endif /* !defined(TOR_PARSECOMMON_H) */
 

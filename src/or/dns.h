@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -64,7 +64,7 @@ set_exitconn_info_from_resolve,(edge_connection_t *exitconn,
 MOCK_DECL(STATIC int,
 launch_resolve,(cached_resolve_t *resolve));
 
-#endif
+#endif /* defined(DNS_PRIVATE) */
 
-#endif
+#endif /* !defined(TOR_DNS_H) */
 

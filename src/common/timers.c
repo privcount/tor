@@ -1,4 +1,4 @@
-/* Copyright (c) 2016, The Tor Project, Inc. */
+/* Copyright (c) 2016-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -29,6 +29,8 @@
 
 #include "orconfig.h"
 
+#define TOR_TIMERS_PRIVATE
+
 #include "compat.h"
 #include "compat_libevent.h"
 #include "timers.h"
@@ -51,7 +53,7 @@ struct timeout_cb {
 #else
 /* We're not exposing any of the functions outside this file. */
 #define TIMEOUT_PUBLIC static
-#endif
+#endif /* defined(__GNUC__) */
 /* We're not using periodic events. */
 #define TIMEOUT_DISABLE_INTERVALS
 /* We always know the global_timeouts object, so we don't need each timeout
@@ -148,6 +150,21 @@ libevent_timer_reschedule(void)
   event_add(global_timer_event, &d);
 }
 
+/** Run the callback of every timer that has expired, based on the current
+ * output of monotime_get(). */
+STATIC void
+timers_run_pending(void)
+{
+  monotime_t now;
+  monotime_get(&now);
+  timer_advance_to_cur_time(&now);
+
+  tor_timer_t *t;
+  while ((t = timeouts_get(global_timeouts))) {
+    t->callback.cb(t, t->callback.arg, &now);
+  }
+}
+
 /**
  * Invoked when the libevent timer has expired: see which tor_timer_t events
  * have fired, activate their callbacks, and reschedule the libevent timer.
@@ -159,14 +176,7 @@ libevent_timer_callback(evutil_socket_t fd, short what, void *arg)
   (void)what;
   (void)arg;
 
-  monotime_t now;
-  monotime_get(&now);
-  timer_advance_to_cur_time(&now);
-
-  tor_timer_t *t;
-  while ((t = timeouts_get(global_timeouts))) {
-    t->callback.cb(t, t->callback.arg, &now);
-  }
+  timers_run_pending();
 
   libevent_timer_reschedule();
 }
@@ -181,7 +191,7 @@ timers_initialize(void)
   if (BUG(global_timeouts))
     return; // LCOV_EXCL_LINE
 
-  timeout_error_t err;
+  timeout_error_t err = 0;
   global_timeouts = timeouts_open(0, &err);
   if (!global_timeouts) {
     // LCOV_EXCL_START -- this can only fail on malloc failure.

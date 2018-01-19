@@ -1,6 +1,6 @@
 /* Copyright (c) 2003-2004, Roger Dingledine
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -843,13 +843,13 @@ smartlist_sort_pointers(smartlist_t *sl)
  *   }
  *
  *   void timer_heap_insert(smartlist_t *heap, timer_t *timer) {
- *      smartlist_pqueue_add(heap, compare, STRUCT_OFFSET(timer_t, heap_index),
+ *      smartlist_pqueue_add(heap, compare, offsetof(timer_t, heap_index),
  *         timer);
  *   }
  *
  *   void timer_heap_pop(smartlist_t *heap) {
  *      return smartlist_pqueue_pop(heap, compare,
- *         STRUCT_OFFSET(timer_t, heap_index));
+ *         offsetof(timer_t, heap_index));
  *   }
  */
 

@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -25,5 +25,5 @@ void pathbias_mark_use_success(origin_circuit_t *circ);
 void pathbias_mark_use_rollback(origin_circuit_t *circ);
 const char *pathbias_state_to_string(path_state_t state);
 
-#endif
+#endif /* !defined(TOR_CIRCPATHBIAS_H) */
 

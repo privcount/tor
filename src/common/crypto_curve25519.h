@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Tor Project, Inc. */
+/* Copyright (c) 2012-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_CRYPTO_CURVE25519_H
@@ -71,7 +71,7 @@ STATIC int curve25519_impl(uint8_t *output, const uint8_t *secret,
                            const uint8_t *basepoint);
 
 STATIC int curve25519_basepoint_impl(uint8_t *output, const uint8_t *secret);
-#endif
+#endif /* defined(CRYPTO_CURVE25519_PRIVATE) */
 
 #define CURVE25519_BASE64_PADDED_LEN 44
 
@@ -83,5 +83,5 @@ int curve25519_public_to_base64(char *output,
 void curve25519_set_impl_params(int use_ed);
 void curve25519_init(void);
 
-#endif
+#endif /* !defined(TOR_CRYPTO_CURVE25519_H) */
 

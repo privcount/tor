@@ -1,6 +1,6 @@
 /* Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -53,7 +53,7 @@ ddmap_entry_free(ddmap_entry_t *e)
 static ddmap_entry_t *
 ddmap_entry_new(int n_votes)
 {
-  return tor_malloc_zero(STRUCT_OFFSET(ddmap_entry_t, vrs_lst) +
+  return tor_malloc_zero(offsetof(ddmap_entry_t, vrs_lst) +
                          sizeof(vote_routerstatus_t *) * n_votes);
 }
 

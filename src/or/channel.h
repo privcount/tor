@@ -1,4 +1,4 @@
-/* * Copyright (c) 2012-2016, The Tor Project, Inc. */
+/* * Copyright (c) 2012-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -11,6 +11,8 @@
 
 #include "or.h"
 #include "circuitmux.h"
+#include "timers.h"
+#include "handles.h"
 
 /* Channel handler function pointer typedefs */
 typedef void (*channel_listener_fn_ptr)(channel_listener_t *, channel_t *);
@@ -20,6 +22,17 @@ typedef void (*channel_var_cell_handler_fn_ptr)(channel_t *, var_cell_t *);
 struct cell_queue_entry_s;
 TOR_SIMPLEQ_HEAD(chan_cell_queue, cell_queue_entry_s);
 typedef struct chan_cell_queue chan_cell_queue_t;
+
+/**
+ * This enum is used by channelpadding to decide when to pad channels.
+ * Don't add values to it without updating the checks in
+ * channelpadding_decide_to_pad_channel().
+ */
+typedef enum {
+    CHANNEL_USED_NOT_USED_FOR_FULL_CIRCS = 0,
+    CHANNEL_USED_FOR_FULL_CIRCS,
+    CHANNEL_USED_FOR_USER_TRAFFIC,
+} channel_usage_info_t;
 
 /**
  * Channel struct; see the channel_t typedef in or.h.  A channel is an
@@ -34,11 +47,17 @@ struct channel_s {
   /** Magic number for type-checking cast macros */
   uint32_t magic;
 
+  /** List entry for hashtable for global-identifier lookup. */
+  HT_ENTRY(channel_s) gidmap_node;
+
+  /** Handle entry for handle-based lookup */
+  HANDLE_ENTRY(channel, channel_s);
+
   /** Current channel state */
   channel_state_t state;
 
   /** Globally unique ID number for a channel over the lifetime of a Tor
-   * process.
+   * process.  This may not be 0.
    */
   uint64_t global_identifier;
 
@@ -47,6 +66,61 @@ struct channel_s {
 
   /** has this channel ever been open? */
   unsigned int has_been_open:1;
+
+  /**
+   * This field indicates if the other side has enabled or disabled
+   * padding via either the link protocol version or
+   * channelpadding_negotiate cells.
+   *
+   * Clients can override this with ConnectionPadding in torrc to
+   * disable or force padding to relays, but relays cannot override the
+   * client's request.
+   */
+  unsigned int padding_enabled:1;
+
+  /** Cached value of our decision to pad (to avoid expensive
+   * checks during critical path statistics counting). */
+  unsigned int currently_padding:1;
+
+  /** Is there a pending netflow padding callback? */
+  unsigned int pending_padding_callback:1;
+
+  /** Is our peer likely to consider this channel canonical? */
+  unsigned int is_canonical_to_peer:1;
+
+  /** Has this channel ever been used for non-directory traffic?
+   * Used to decide what channels to pad, and when. */
+  channel_usage_info_t channel_usage;
+
+  /** When should we send a cell for netflow padding, in absolute
+   *  milliseconds since monotime system start. 0 means no padding
+   *  is scheduled. */
+  uint64_t next_padding_time_ms;
+
+  /** The callback pointer for the padding callbacks */
+  tor_timer_t *padding_timer;
+  /** The handle to this channel (to free on canceled timers) */
+  struct channel_handle_t *timer_handle;
+
+  /**
+   * These two fields specify the minimum and maximum negotiated timeout
+   * values for inactivity (send or receive) before we decide to pad a
+   * channel. These fields can be set either via a PADDING_NEGOTIATE cell,
+   * or the torrc option ReducedConnectionPadding. The consensus parameters
+   * nf_ito_low and nf_ito_high are used to ensure that padding can only be
+   * negotiated to be less frequent than what is specified in the consensus.
+   * (This is done to prevent wingnut clients from requesting excessive
+   * padding).
+   *
+   * The actual timeout value is randomly chosen between these two values
+   * as per the table in channelpadding_get_netflow_inactive_timeout_ms(),
+   * after ensuring that these values do not specify lower timeouts than
+   * the consensus parameters.
+   *
+   * If these are 0, we have not negotiated or specified custom padding
+   * times, and instead use consensus defaults. */
+  uint16_t padding_timeout_low_ms;
+  uint16_t padding_timeout_high_ms;
 
   /** Why did we close?
    */
@@ -86,6 +160,18 @@ struct channel_s {
   /** Timestamps for both cell channels and listeners */
   time_t timestamp_created; /* Channel created */
   time_t timestamp_active; /* Any activity */
+
+  /**
+   * This is a high-resolution monotonic timestamp that marks when we
+   * believe the channel has actually sent or received data to/from
+   * the wire. Right now, it is used to determine when we should send
+   * a padding cell for channelpadding.
+   *
+   * XXX: Are we setting timestamp_xfer_ms in the right places to
+   * accurately reflect actual network data transfer? Or might this be
+   * very wrong wrt when bytes actually go on the wire?
+   */
+  uint64_t timestamp_xfer_ms;
 
   /* Methods implemented by the lower layer */
 
@@ -404,7 +490,7 @@ STATIC void cell_queue_entry_free(cell_queue_entry_t *q, int handed_off);
 
 void channel_write_cell_generic_(channel_t *chan, const char *cell_type,
                                  void *cell, cell_queue_entry_t *q);
-#endif
+#endif /* defined(CHANNEL_PRIVATE_) */
 
 /* Channel operations for subclasses and internal use only */
 
@@ -439,6 +525,7 @@ void channel_listener_free(channel_listener_t *chan_l);
 /* State/metadata setters */
 
 void channel_change_state(channel_t *chan, channel_state_t to_state);
+void channel_change_state_open(channel_t *chan);
 void channel_clear_identity_digest(channel_t *chan);
 void channel_clear_remote_end(channel_t *chan);
 void channel_mark_local(channel_t *chan);
@@ -484,7 +571,7 @@ MOCK_DECL(ssize_t, channel_flush_some_cells,
           (channel_t *chan, ssize_t num_cells));
 
 /* Query if data available on this channel */
-int channel_more_to_flush(channel_t *chan);
+MOCK_DECL(int, channel_more_to_flush, (channel_t *chan));
 
 /* Notify flushed outgoing for dirreq handling */
 void channel_notify_flushed(channel_t *chan);
@@ -496,7 +583,7 @@ void channel_do_open_actions(channel_t *chan);
 extern uint64_t estimated_total_queue_size;
 #endif
 
-#endif
+#endif /* defined(TOR_CHANNEL_INTERNAL_) */
 
 /* Helper functions to perform operations on channels */
 
@@ -519,9 +606,7 @@ channel_t * channel_get_for_extend(const char *rsa_id_digest,
                                    int *launch_out);
 
 /* Ask which of two channels is better for circuit-extension purposes */
-int channel_is_better(time_t now,
-                      channel_t *a, channel_t *b,
-                      int forgive_new_connections);
+int channel_is_better(channel_t *a, channel_t *b);
 
 /** Channel lookups
  */
@@ -584,11 +669,12 @@ int channel_is_bad_for_new_circs(channel_t *chan);
 void channel_mark_bad_for_new_circs(channel_t *chan);
 int channel_is_canonical(channel_t *chan);
 int channel_is_canonical_is_reliable(channel_t *chan);
-int channel_is_client(channel_t *chan);
+int channel_is_client(const channel_t *chan);
 int channel_is_local(channel_t *chan);
 int channel_is_incoming(channel_t *chan);
 int channel_is_outgoing(channel_t *chan);
 void channel_mark_client(channel_t *chan);
+void channel_clear_client(channel_t *chan);
 int channel_matches_extend_info(channel_t *chan, extend_info_t *extend_info);
 int channel_matches_target_addr_for_extend(channel_t *chan,
                                            const tor_addr_t *target);
@@ -604,6 +690,7 @@ void channel_listener_dump_statistics(channel_listener_t *chan_l,
                                       int severity);
 void channel_listener_dump_transport_statistics(channel_listener_t *chan_l,
                                                 int severity);
+void channel_check_for_duplicates(void);
 
 void channel_update_bad_for_new_circs(const char *digest, int force);
 
@@ -633,5 +720,8 @@ int packed_cell_is_destroy(channel_t *chan,
                            const packed_cell_t *packed_cell,
                            circid_t *circid_out);
 
-#endif
+/* Declare the handle helpers */
+HANDLE_DECL(channel, channel_s,)
+
+#endif /* !defined(TOR_CHANNEL_H) */
 

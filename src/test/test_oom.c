@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Tor Project, Inc. */
+/* Copyright (c) 2014-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /* Unit tests for OOM handling logic */
@@ -67,7 +67,7 @@ add_bytes_to_buf(buf_t *buf, size_t n_bytes)
   while (n_bytes) {
     size_t this_add = n_bytes > sizeof(b) ? sizeof(b) : n_bytes;
     crypto_rand(b, this_add);
-    write_to_buf(b, this_add, buf);
+    buf_add(buf, b, this_add);
     n_bytes -= this_add;
   }
 }

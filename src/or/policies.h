@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -141,7 +141,7 @@ STATIC const tor_addr_port_t * fascist_firewall_choose_address(
                                           firewall_connection_t fw_connection,
                                           int pref_only, int pref_ipv6);
 
-#endif
+#endif /* defined(POLICIES_PRIVATE) */
 
-#endif
+#endif /* !defined(TOR_POLICIES_H) */
 

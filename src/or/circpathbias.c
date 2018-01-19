@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -292,7 +292,7 @@ pathbias_is_new_circ_attempt(origin_circuit_t *circ)
   return circ->cpath &&
          circ->cpath->next != circ->cpath &&
          circ->cpath->next->state == CPATH_STATE_AWAITING_KEYS;
-#else
+#else /* !(defined(N2N_TAGGING_IS_POSSIBLE)) */
   /* If tagging attacks are no longer possible, we probably want to
    * count bias from the first hop. However, one could argue that
    * timing-based tagging is still more useful than per-hop failure.
@@ -300,7 +300,7 @@ pathbias_is_new_circ_attempt(origin_circuit_t *circ)
    */
   return circ->cpath &&
          circ->cpath->state == CPATH_STATE_AWAITING_KEYS;
-#endif
+#endif /* defined(N2N_TAGGING_IS_POSSIBLE) */
 }
 
 /**

@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2016, The Tor Project, Inc. */
+/* Copyright (c) 2014-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_KEYPIN_H
@@ -41,7 +41,7 @@ STATIC keypin_ent_t * keypin_parse_journal_line(const char *cp);
 STATIC int keypin_load_journal_impl(const char *data, size_t size);
 
 MOCK_DECL(STATIC void, keypin_add_entry_to_map, (keypin_ent_t *ent));
-#endif
+#endif /* defined(KEYPIN_PRIVATE) */
 
-#endif
+#endif /* !defined(TOR_KEYPIN_H) */
 

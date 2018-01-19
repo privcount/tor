@@ -20,8 +20,8 @@ EXTRA_DIST+= src/or/ntmain.c src/or/Makefile.nmake
 LIBTOR_A_SOURCES = \
 	src/or/addressmap.c				\
 	src/or/bridges.c				\
-	src/or/buffers.c				\
 	src/or/channel.c				\
+	src/or/channelpadding.c				\
 	src/or/channeltls.c				\
 	src/or/circpathbias.c				\
 	src/or/circuitbuild.c				\
@@ -36,6 +36,9 @@ LIBTOR_A_SOURCES = \
 	src/or/connection.c				\
 	src/or/connection_edge.c			\
 	src/or/connection_or.c				\
+	src/or/conscache.c				\
+	src/or/consdiff.c				\
+	src/or/consdiffmgr.c				\
 	src/or/control.c				\
 	src/or/cpuworker.c				\
 	src/or/dircollate.c				\
@@ -46,15 +49,21 @@ LIBTOR_A_SOURCES = \
 	src/or/dnsserv.c				\
 	src/or/fp_pair.c				\
 	src/or/geoip.c					\
-	src/or/hs_intropoint.c          \
-	src/or/hs_circuitmap.c          \
-	src/or/hs_service.c             \
 	src/or/entrynodes.c				\
 	src/or/ext_orport.c				\
 	src/or/hibernate.c				\
 	src/or/hs_cache.c				\
+	src/or/hs_cell.c				\
+	src/or/hs_circuit.c				\
+	src/or/hs_circuitmap.c				\
+	src/or/hs_client.c				\
 	src/or/hs_common.c				\
+	src/or/hs_config.c				\
 	src/or/hs_descriptor.c				\
+	src/or/hs_ident.c				\
+	src/or/hs_intropoint.c				\
+	src/or/hs_ntor.c				\
+	src/or/hs_service.c				\
 	src/or/keypin.c					\
 	src/or/main.c					\
 	src/or/microdesc.c				\
@@ -69,6 +78,11 @@ LIBTOR_A_SOURCES = \
 	src/or/parsecommon.c			\
 	src/or/periodic.c				\
 	src/or/protover.c				\
+	src/or/proto_cell.c				\
+	src/or/proto_control0.c				\
+	src/or/proto_ext_or.c				\
+	src/or/proto_http.c				\
+	src/or/proto_socks.c				\
 	src/or/policies.c				\
 	src/or/reasons.c				\
 	src/or/relay.c					\
@@ -85,6 +99,8 @@ LIBTOR_A_SOURCES = \
 	src/or/routerparse.c				\
 	src/or/routerset.c				\
 	src/or/scheduler.c				\
+	src/or/scheduler_kist.c				\
+	src/or/scheduler_vanilla.c			\
 	src/or/statefile.c				\
 	src/or/status.c					\
 	src/or/torcert.c				\
@@ -116,8 +132,12 @@ src_or_tor_LDFLAGS = @TOR_LDFLAGS_zlib@ @TOR_LDFLAGS_openssl@ @TOR_LDFLAGS_libev
 src_or_tor_LDADD = src/or/libtor.a src/common/libor.a src/common/libor-ctime.a \
 	src/common/libor-crypto.a $(LIBKECCAK_TINY) $(LIBDONNA) \
 	src/common/libor-event.a src/trunnel/libor-trunnel.a \
+	src/trace/libor-trace.a \
+	$(rust_ldadd) \
 	@TOR_ZLIB_LIBS@ @TOR_LIB_MATH@ @TOR_LIBEVENT_LIBS@ @TOR_OPENSSL_LIBS@ \
-	@TOR_LIB_WS32@ @TOR_LIB_GDI@ @CURVE25519_LIBS@ @TOR_SYSTEMD_LIBS@
+	@TOR_LIB_WS32@ @TOR_LIB_GDI@ @TOR_LIB_USERENV@ \
+	@CURVE25519_LIBS@ @TOR_SYSTEMD_LIBS@ \
+	@TOR_LZMA_LIBS@ @TOR_ZSTD_LIBS@
 
 if COVERAGE_ENABLED
 src_or_tor_cov_SOURCES = src/or/tor_main.c
@@ -129,14 +149,15 @@ src_or_tor_cov_LDADD = src/or/libtor-testing.a src/common/libor-testing.a \
 	src/common/libor-crypto-testing.a $(LIBKECCAK_TINY) $(LIBDONNA) \
 	src/common/libor-event-testing.a src/trunnel/libor-trunnel-testing.a \
 	@TOR_ZLIB_LIBS@ @TOR_LIB_MATH@ @TOR_LIBEVENT_LIBS@ @TOR_OPENSSL_LIBS@ \
-	@TOR_LIB_WS32@ @TOR_LIB_GDI@ @CURVE25519_LIBS@ @TOR_SYSTEMD_LIBS@
+	@TOR_LIB_WS32@ @TOR_LIB_GDI@ @CURVE25519_LIBS@ @TOR_SYSTEMD_LIBS@ \
+	@TOR_LZMA_LIBS@ @TOR_ZSTD_LIBS@
 endif
 
 ORHEADERS = \
 	src/or/addressmap.h				\
 	src/or/bridges.h				\
-	src/or/buffers.h				\
 	src/or/channel.h				\
+	src/or/channelpadding.h				\
 	src/or/channeltls.h				\
 	src/or/circpathbias.h				\
 	src/or/circuitbuild.h				\
@@ -151,6 +172,9 @@ ORHEADERS = \
 	src/or/connection.h				\
 	src/or/connection_edge.h			\
 	src/or/connection_or.h				\
+	src/or/conscache.h				\
+	src/or/consdiff.h				\
+	src/or/consdiffmgr.h				\
 	src/or/control.h				\
 	src/or/cpuworker.h				\
 	src/or/dircollate.h				\
@@ -167,11 +191,17 @@ ORHEADERS = \
 	src/or/entrynodes.h				\
 	src/or/hibernate.h				\
 	src/or/hs_cache.h				\
+	src/or/hs_cell.h				\
+	src/or/hs_config.h				\
+	src/or/hs_circuit.h				\
+	src/or/hs_circuitmap.h				\
+	src/or/hs_client.h				\
 	src/or/hs_common.h				\
 	src/or/hs_descriptor.h				\
-	src/or/hs_intropoint.h          \
-	src/or/hs_circuitmap.h          \
-	src/or/hs_service.h             \
+	src/or/hs_ident.h				\
+	src/or/hs_intropoint.h				\
+	src/or/hs_ntor.h				\
+	src/or/hs_service.h				\
 	src/or/keypin.h					\
 	src/or/main.h					\
 	src/or/microdesc.h				\
@@ -190,6 +220,11 @@ ORHEADERS = \
 	src/or/periodic.h				\
 	src/or/policies.h				\
 	src/or/protover.h				\
+	src/or/proto_cell.h				\
+	src/or/proto_control0.h				\
+	src/or/proto_ext_or.h				\
+	src/or/proto_http.h				\
+	src/or/proto_socks.h				\
 	src/or/reasons.h				\
 	src/or/relay.h					\
 	src/or/rendcache.h				\

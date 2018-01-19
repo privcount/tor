@@ -1,6 +1,6 @@
 /* Copyright (c) 2003-2004, Roger Dingledine
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -133,7 +133,7 @@ STATIC char* get_pt_proxy_uri(void);
 
 STATIC void free_execve_args(char **arg);
 
-#endif
+#endif /* defined(PT_PRIVATE) */
 
-#endif
+#endif /* !defined(TOR_TRANSPORTS_H) */
 

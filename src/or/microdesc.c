@@ -1,4 +1,4 @@
-/* Copyright (c) 2009-2016, The Tor Project, Inc. */
+/* Copyright (c) 2009-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -73,6 +73,102 @@ HT_PROTOTYPE(microdesc_map, microdesc_t, node,
 HT_GENERATE2(microdesc_map, microdesc_t, node,
              microdesc_hash_, microdesc_eq_, 0.6,
              tor_reallocarray_, tor_free_)
+
+/************************* md fetch fail cache *****************************/
+
+/* If we end up with too many outdated dirservers, something probably went
+ * wrong so clean up the list. */
+#define TOO_MANY_OUTDATED_DIRSERVERS 30
+
+/** List of dirservers with outdated microdesc information. The smartlist is
+ *  filled with the hex digests of outdated dirservers. */
+static smartlist_t *outdated_dirserver_list = NULL;
+
+/** Note that we failed to fetch a microdescriptor from the relay with
+ *  <b>relay_digest</b> (of size DIGEST_LEN). */
+void
+microdesc_note_outdated_dirserver(const char *relay_digest)
+{
+  char relay_hexdigest[HEX_DIGEST_LEN+1];
+
+  /* Don't register outdated dirservers if we don't have a live consensus,
+   * since we might be trying to fetch microdescriptors that are not even
+   * currently active. */
+  if (!networkstatus_get_live_consensus(approx_time())) {
+    return;
+  }
+
+  if (!outdated_dirserver_list) {
+    outdated_dirserver_list = smartlist_new();
+  }
+
+  tor_assert(outdated_dirserver_list);
+
+  /* If the list grows too big, clean it up */
+  if (BUG(smartlist_len(outdated_dirserver_list) >
+          TOO_MANY_OUTDATED_DIRSERVERS)) {
+    microdesc_reset_outdated_dirservers_list();
+  }
+
+  /* Turn the binary relay digest to a hex since smartlists have better support
+   * for strings than digests. */
+  base16_encode(relay_hexdigest,sizeof(relay_hexdigest),
+                relay_digest, DIGEST_LEN);
+
+  /* Make sure we don't add a dirauth as an outdated dirserver */
+  if (router_get_trusteddirserver_by_digest(relay_digest)) {
+    log_info(LD_GENERAL, "Auth %s gave us outdated dirinfo.", relay_hexdigest);
+    return;
+  }
+
+  /* Don't double-add outdated dirservers */
+  if (smartlist_contains_string(outdated_dirserver_list, relay_hexdigest)) {
+    return;
+  }
+
+  /* Add it to the list of outdated dirservers */
+  smartlist_add_strdup(outdated_dirserver_list, relay_hexdigest);
+
+  log_info(LD_GENERAL, "Noted %s as outdated md dirserver", relay_hexdigest);
+}
+
+/** Return True if the relay with <b>relay_digest</b> (size DIGEST_LEN) is an
+ *  outdated dirserver */
+int
+microdesc_relay_is_outdated_dirserver(const char *relay_digest)
+{
+  char relay_hexdigest[HEX_DIGEST_LEN+1];
+
+  if (!outdated_dirserver_list) {
+    return 0;
+  }
+
+  /* Convert identity digest to hex digest */
+  base16_encode(relay_hexdigest, sizeof(relay_hexdigest),
+                relay_digest, DIGEST_LEN);
+
+  /* Last time we tried to fetch microdescs, was this directory mirror missing
+   * any mds we asked for? */
+  if (smartlist_contains_string(outdated_dirserver_list, relay_hexdigest)) {
+    return 1;
+  }
+
+  return 0;
+}
+
+/** Reset the list of outdated dirservers. */
+void
+microdesc_reset_outdated_dirservers_list(void)
+{
+  if (!outdated_dirserver_list) {
+    return;
+  }
+
+  SMARTLIST_FOREACH(outdated_dirserver_list, char *, cp, tor_free(cp));
+  smartlist_clear(outdated_dirserver_list);
+}
+
+/****************************************************************************/
 
 /** Write the body of <b>md</b> into <b>f</b>, with appropriate annotations.
  * On success, return the total number of bytes written, and set
@@ -789,6 +885,11 @@ microdesc_free_all(void)
     tor_free(the_microdesc_cache->journal_fname);
     tor_free(the_microdesc_cache);
   }
+
+  if (outdated_dirserver_list) {
+    SMARTLIST_FOREACH(outdated_dirserver_list, char *, cp, tor_free(cp));
+    smartlist_free(outdated_dirserver_list);
+  }
 }
 
 /** If there is a microdescriptor in <b>cache</b> whose sha256 digest is
@@ -802,18 +903,6 @@ microdesc_cache_lookup_by_digest256(microdesc_cache_t *cache, const char *d)
   memcpy(search.digest, d, DIGEST256_LEN);
   md = HT_FIND(microdesc_map, &cache->map, &search);
   return md;
-}
-
-/** Return the mean size of decriptors added to <b>cache</b> since it was last
- * cleared.  Used to estimate the size of large downloads. */
-size_t
-microdesc_average_size(microdesc_cache_t *cache)
-{
-  if (!cache)
-    cache = get_microdesc_cache();
-  if (!cache->n_seen)
-    return 512;
-  return (size_t)(cache->total_len_seen / cache->n_seen);
 }
 
 /** Return a smartlist of all the sha256 digest of the microdescriptors that
@@ -888,7 +977,7 @@ update_microdesc_downloads(time_t now)
   smartlist_free(missing);
 }
 
-/** For every microdescriptor listed in the current microdecriptor consensus,
+/** For every microdescriptor listed in the current microdescriptor consensus,
  * update its last_listed field to be at least as recent as the publication
  * time of the current microdescriptor consensus.
  */

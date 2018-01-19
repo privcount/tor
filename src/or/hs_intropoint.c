@@ -1,4 +1,4 @@
-/* Copyright (c) 2016, The Tor Project, Inc. */
+/* Copyright (c) 2016-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -24,6 +24,7 @@
 #include "hs/cell_introduce1.h"
 
 #include "hs_circuitmap.h"
+#include "hs_descriptor.h"
 #include "hs_intropoint.h"
 #include "hs_common.h"
 
@@ -45,16 +46,16 @@ get_auth_key_from_cell(ed25519_public_key_t *auth_key_out,
   switch (cell_type) {
   case RELAY_COMMAND_ESTABLISH_INTRO:
   {
-    const hs_cell_establish_intro_t *c_cell = cell;
-    key_array = hs_cell_establish_intro_getconstarray_auth_key(c_cell);
-    auth_key_len = hs_cell_establish_intro_getlen_auth_key(c_cell);
+    const trn_cell_establish_intro_t *c_cell = cell;
+    key_array = trn_cell_establish_intro_getconstarray_auth_key(c_cell);
+    auth_key_len = trn_cell_establish_intro_getlen_auth_key(c_cell);
     break;
   }
   case RELAY_COMMAND_INTRODUCE1:
   {
-    const hs_cell_introduce1_t *c_cell = cell;
-    key_array = hs_cell_introduce1_getconstarray_auth_key(cell);
-    auth_key_len = hs_cell_introduce1_getlen_auth_key(c_cell);
+    const trn_cell_introduce1_t *c_cell = cell;
+    key_array = trn_cell_introduce1_getconstarray_auth_key(cell);
+    auth_key_len = trn_cell_introduce1_getlen_auth_key(c_cell);
     break;
   }
   default:
@@ -70,22 +71,22 @@ get_auth_key_from_cell(ed25519_public_key_t *auth_key_out,
 /** We received an ESTABLISH_INTRO <b>cell</b>. Verify its signature and MAC,
  *  given <b>circuit_key_material</b>. Return 0 on success else -1 on error. */
 STATIC int
-verify_establish_intro_cell(const hs_cell_establish_intro_t *cell,
+verify_establish_intro_cell(const trn_cell_establish_intro_t *cell,
                             const uint8_t *circuit_key_material,
                             size_t circuit_key_material_len)
 {
   /* We only reach this function if the first byte of the cell is 0x02 which
-   * means that auth_key_type is AUTH_KEY_ED25519, hence this check should
+   * means that auth_key_type is of ed25519 type, hence this check should
    * always pass. See hs_intro_received_establish_intro().  */
-  if (BUG(cell->auth_key_type != AUTH_KEY_ED25519)) {
+  if (BUG(cell->auth_key_type != HS_INTRO_AUTH_KEY_TYPE_ED25519)) {
     return -1;
   }
 
   /* Make sure the auth key length is of the right size for this type. For
    * EXTRA safety, we check both the size of the array and the length which
    * must be the same. Safety first!*/
-  if (hs_cell_establish_intro_getlen_auth_key(cell) != ED25519_PUBKEY_LEN ||
-      hs_cell_establish_intro_get_auth_key_len(cell) != ED25519_PUBKEY_LEN) {
+  if (trn_cell_establish_intro_getlen_auth_key(cell) != ED25519_PUBKEY_LEN ||
+      trn_cell_establish_intro_get_auth_key_len(cell) != ED25519_PUBKEY_LEN) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "ESTABLISH_INTRO auth key length is invalid");
     return -1;
@@ -96,13 +97,14 @@ verify_establish_intro_cell(const hs_cell_establish_intro_t *cell,
   /* Verify the sig */
   {
     ed25519_signature_t sig_struct;
-    const uint8_t *sig_array = hs_cell_establish_intro_getconstarray_sig(cell);
+    const uint8_t *sig_array =
+      trn_cell_establish_intro_getconstarray_sig(cell);
 
     /* Make sure the signature length is of the right size. For EXTRA safety,
      * we check both the size of the array and the length which must be the
      * same. Safety first!*/
-    if (hs_cell_establish_intro_getlen_sig(cell) != sizeof(sig_struct.sig) ||
-        hs_cell_establish_intro_get_sig_len(cell) != sizeof(sig_struct.sig)) {
+    if (trn_cell_establish_intro_getlen_sig(cell) != sizeof(sig_struct.sig) ||
+        trn_cell_establish_intro_get_sig_len(cell) != sizeof(sig_struct.sig)) {
       log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
              "ESTABLISH_INTRO sig len is invalid");
       return -1;
@@ -149,21 +151,21 @@ hs_intro_send_intro_established_cell,(or_circuit_t *circ))
   int ret;
   uint8_t *encoded_cell = NULL;
   ssize_t encoded_len, result_len;
-  hs_cell_intro_established_t *cell;
-  cell_extension_t *ext;
+  trn_cell_intro_established_t *cell;
+  trn_cell_extension_t *ext;
 
   tor_assert(circ);
 
   /* Build the cell payload. */
-  cell = hs_cell_intro_established_new();
-  ext = cell_extension_new();
-  cell_extension_set_num(ext, 0);
-  hs_cell_intro_established_set_extensions(cell, ext);
+  cell = trn_cell_intro_established_new();
+  ext = trn_cell_extension_new();
+  trn_cell_extension_set_num(ext, 0);
+  trn_cell_intro_established_set_extensions(cell, ext);
   /* Encode the cell to binary format. */
-  encoded_len = hs_cell_intro_established_encoded_len(cell);
+  encoded_len = trn_cell_intro_established_encoded_len(cell);
   tor_assert(encoded_len > 0);
   encoded_cell = tor_malloc_zero(encoded_len);
-  result_len = hs_cell_intro_established_encode(encoded_cell, encoded_len,
+  result_len = trn_cell_intro_established_encode(encoded_cell, encoded_len,
                                                 cell);
   tor_assert(encoded_len == result_len);
 
@@ -172,7 +174,7 @@ hs_intro_send_intro_established_cell,(or_circuit_t *circ))
                                      (char *) encoded_cell, encoded_len,
                                      NULL);
   /* On failure, the above function will close the circuit. */
-  hs_cell_intro_established_free(cell);
+  trn_cell_intro_established_free(cell);
   tor_free(encoded_cell);
   return ret;
 }
@@ -182,7 +184,7 @@ hs_intro_send_intro_established_cell,(or_circuit_t *circ))
  *  establish an intro point. */
 static int
 handle_verified_establish_intro_cell(or_circuit_t *circ,
-                               const hs_cell_establish_intro_t *parsed_cell)
+                               const trn_cell_establish_intro_t *parsed_cell)
 {
   /* Get the auth key of this intro point */
   ed25519_public_key_t auth_key;
@@ -199,7 +201,7 @@ handle_verified_establish_intro_cell(or_circuit_t *circ,
   circ->privcount_hs_version_number = HS_VERSION_THREE;
 
   /* Associate intro point auth key with this circuit. */
-  hs_circuitmap_register_intro_circ_v3(circ, &auth_key);
+  hs_circuitmap_register_intro_circ_v3_relay_side(circ, &auth_key);
   /* Repurpose this circuit into an intro circuit. */
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_INTRO_POINT);
 
@@ -214,7 +216,7 @@ handle_establish_intro(or_circuit_t *circ, const uint8_t *request,
                        size_t request_len)
 {
   int cell_ok, retval = -1;
-  hs_cell_establish_intro_t *parsed_cell = NULL;
+  trn_cell_establish_intro_t *parsed_cell = NULL;
 
   tor_assert(circ);
   tor_assert(request);
@@ -229,7 +231,7 @@ handle_establish_intro(or_circuit_t *circ, const uint8_t *request,
   }
 
   /* Parse the cell */
-  ssize_t parsing_result = hs_cell_establish_intro_parse(&parsed_cell,
+  ssize_t parsing_result = trn_cell_establish_intro_parse(&parsed_cell,
                                                          request, request_len);
   if (parsing_result < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
@@ -268,7 +270,7 @@ handle_establish_intro(or_circuit_t *circ, const uint8_t *request,
   }
 
  done:
-  hs_cell_establish_intro_free(parsed_cell);
+  trn_cell_establish_intro_free(parsed_cell);
   return retval;
 }
 
@@ -350,28 +352,28 @@ send_introduce_ack_cell(or_circuit_t *circ, hs_intro_ack_status_t status)
   int ret = -1;
   uint8_t *encoded_cell = NULL;
   ssize_t encoded_len, result_len;
-  hs_cell_introduce_ack_t *cell;
-  cell_extension_t *ext;
+  trn_cell_introduce_ack_t *cell;
+  trn_cell_extension_t *ext;
 
   tor_assert(circ);
 
   /* Setup the INTRODUCE_ACK cell. We have no extensions so the N_EXTENSIONS
    * field is set to 0 by default with a new object. */
-  cell = hs_cell_introduce_ack_new();
-  ret = hs_cell_introduce_ack_set_status(cell, status);
+  cell = trn_cell_introduce_ack_new();
+  ret = trn_cell_introduce_ack_set_status(cell, status);
   /* We have no cell extensions in an INTRODUCE_ACK cell. */
-  ext = cell_extension_new();
-  cell_extension_set_num(ext, 0);
-  hs_cell_introduce_ack_set_extensions(cell, ext);
+  ext = trn_cell_extension_new();
+  trn_cell_extension_set_num(ext, 0);
+  trn_cell_introduce_ack_set_extensions(cell, ext);
   /* A wrong status is a very bad code flow error as this value is controlled
    * by the code in this file and not an external input. This means we use a
    * code that is not known by the trunnel ABI. */
   tor_assert(ret == 0);
   /* Encode the payload. We should never fail to get the encoded length. */
-  encoded_len = hs_cell_introduce_ack_encoded_len(cell);
+  encoded_len = trn_cell_introduce_ack_encoded_len(cell);
   tor_assert(encoded_len > 0);
   encoded_cell = tor_malloc_zero(encoded_len);
-  result_len = hs_cell_introduce_ack_encode(encoded_cell, encoded_len, cell);
+  result_len = trn_cell_introduce_ack_encode(encoded_cell, encoded_len, cell);
   tor_assert(encoded_len == result_len);
 
   ret = relay_send_command_from_edge(CONTROL_CELL_ID, TO_CIRCUIT(circ),
@@ -379,7 +381,7 @@ send_introduce_ack_cell(or_circuit_t *circ, hs_intro_ack_status_t status)
                                      (char *) encoded_cell, encoded_len,
                                      NULL);
   /* On failure, the above function will close the circuit. */
-  hs_cell_introduce_ack_free(cell);
+  trn_cell_introduce_ack_free(cell);
   tor_free(encoded_cell);
   return ret;
 }
@@ -387,7 +389,7 @@ send_introduce_ack_cell(or_circuit_t *circ, hs_intro_ack_status_t status)
 /* Validate a parsed INTRODUCE1 <b>cell</b>. Return 0 if valid or else a
  * negative value for an invalid cell that should be NACKed. */
 STATIC int
-validate_introduce1_parsed_cell(const hs_cell_introduce1_t *cell)
+validate_introduce1_parsed_cell(const trn_cell_introduce1_t *cell)
 {
   size_t legacy_key_id_len;
   const uint8_t *legacy_key_id;
@@ -396,29 +398,29 @@ validate_introduce1_parsed_cell(const hs_cell_introduce1_t *cell)
 
   /* This code path SHOULD NEVER be reached if the cell is a legacy type so
    * safety net here. The legacy ID must be zeroes in this case. */
-  legacy_key_id_len = hs_cell_introduce1_getlen_legacy_key_id(cell);
-  legacy_key_id = hs_cell_introduce1_getconstarray_legacy_key_id(cell);
+  legacy_key_id_len = trn_cell_introduce1_getlen_legacy_key_id(cell);
+  legacy_key_id = trn_cell_introduce1_getconstarray_legacy_key_id(cell);
   if (BUG(!tor_mem_is_zero((char *) legacy_key_id, legacy_key_id_len))) {
     goto invalid;
   }
 
   /* The auth key of an INTRODUCE1 should be of type ed25519 thus leading to a
    * known fixed length as well. */
-  if (hs_cell_introduce1_get_auth_key_type(cell) !=
+  if (trn_cell_introduce1_get_auth_key_type(cell) !=
       HS_INTRO_AUTH_KEY_TYPE_ED25519) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "Rejecting invalid INTRODUCE1 cell auth key type. "
            "Responding with NACK.");
     goto invalid;
   }
-  if (hs_cell_introduce1_get_auth_key_len(cell) != ED25519_PUBKEY_LEN ||
-      hs_cell_introduce1_getlen_auth_key(cell) != ED25519_PUBKEY_LEN) {
+  if (trn_cell_introduce1_get_auth_key_len(cell) != ED25519_PUBKEY_LEN ||
+      trn_cell_introduce1_getlen_auth_key(cell) != ED25519_PUBKEY_LEN) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "Rejecting invalid INTRODUCE1 cell auth key length. "
            "Responding with NACK.");
     goto invalid;
   }
-  if (hs_cell_introduce1_getlen_encrypted(cell) == 0) {
+  if (trn_cell_introduce1_getlen_encrypted(cell) == 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
            "Rejecting invalid INTRODUCE1 cell encrypted length. "
            "Responding with NACK.");
@@ -441,7 +443,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
 {
   int ret = -1;
   or_circuit_t *service_circ;
-  hs_cell_introduce1_t *parsed_cell;
+  trn_cell_introduce1_t *parsed_cell;
   hs_intro_ack_status_t status = HS_INTRO_ACK_STATUS_SUCCESS;
 
   tor_assert(client_circ);
@@ -450,7 +452,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
   /* Parse cell. Note that we can only parse the non encrypted section for
    * which we'll use the authentication key to find the service introduction
    * circuit and relay the cell on it. */
-  ssize_t cell_size = hs_cell_introduce1_parse(&parsed_cell, request,
+  ssize_t cell_size = trn_cell_introduce1_parse(&parsed_cell, request,
                                                request_len);
   if (cell_size < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_PROTOCOL,
@@ -474,7 +476,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
   {
     ed25519_public_key_t auth_key;
     get_auth_key_from_cell(&auth_key, RELAY_COMMAND_INTRODUCE1, parsed_cell);
-    service_circ = hs_circuitmap_get_intro_circ_v3(&auth_key);
+    service_circ = hs_circuitmap_get_intro_circ_v3_relay_side(&auth_key);
     if (service_circ == NULL) {
       char b64_key[ED25519_BASE64_LEN + 1];
       ed25519_public_to_base64(b64_key, &auth_key);
@@ -521,7 +523,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
     circuit_mark_for_close(TO_CIRCUIT(client_circ), END_CIRC_REASON_INTERNAL);
   }
  done:
-  hs_cell_introduce1_free(parsed_cell);
+  trn_cell_introduce1_free(parsed_cell);
   return ret;
 }
 
@@ -613,5 +615,20 @@ hs_intro_received_introduce1(or_circuit_t *circ, const uint8_t *request,
  err:
   circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_TORPROTOCOL);
   return -1;
+}
+
+/* Clear memory allocated by the given intropoint object ip (but don't free the
+ * object itself). */
+void
+hs_intropoint_clear(hs_intropoint_t *ip)
+{
+  if (ip == NULL) {
+    return;
+  }
+  tor_cert_free(ip->auth_key_cert);
+  SMARTLIST_FOREACH(ip->link_specifiers, hs_desc_link_specifier_t *, ls,
+                    hs_desc_link_specifier_free(ls));
+  smartlist_free(ip->link_specifiers);
+  memset(ip, 0, sizeof(hs_intropoint_t));
 }
 

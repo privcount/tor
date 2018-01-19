@@ -1,6 +1,6 @@
 /* Copyright (c) 2003-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -98,5 +98,5 @@ typedef struct cached_resolve_t {
   int minheap_idx;
 } cached_resolve_t;
 
-#endif
+#endif /* !defined(TOR_DNS_STRUCTS_H) */
 

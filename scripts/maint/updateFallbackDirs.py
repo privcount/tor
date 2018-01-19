@@ -1,8 +1,13 @@
 #!/usr/bin/python
 
 # Usage:
+#
+# Regenerate the list:
 # scripts/maint/updateFallbackDirs.py > src/or/fallback_dirs.inc
-# scripts/maint/updateFallbackDirs.py check_existing > src/or/fallback_dirs.inc
+#
+# Check the existing list:
+# scripts/maint/updateFallbackDirs.py check_existing > fallback_dirs.inc.ok
+# mv fallback_dirs.inc.ok src/or/fallback_dirs.inc
 #
 # This script should be run from a stable, reliable network connection,
 # with no other network activity (and not over tor).
@@ -154,20 +159,24 @@ MAX_LIST_FILE_SIZE = 1024 * 1024
 ## Eligibility Settings
 
 # Require fallbacks to have the same address and port for a set amount of time
+# We used to have this at 1 week, but that caused many fallback failures, which
+# meant that we had to rebuild the list more often.
 #
 # There was a bug in Tor 0.2.8.1-alpha and earlier where a relay temporarily
 # submits a 0 DirPort when restarted.
 # This causes OnionOO to (correctly) reset its stability timer.
 # Affected relays should upgrade to Tor 0.2.8.7 or later, which has a fix
 # for this issue.
-ADDRESS_AND_PORT_STABLE_DAYS = 7
+ADDRESS_AND_PORT_STABLE_DAYS = 30
 # We ignore relays that have been down for more than this period
 MAX_DOWNTIME_DAYS = 0 if MUST_BE_RUNNING_NOW else 7
 # What time-weighted-fraction of these flags must FallbackDirs
 # Equal or Exceed?
 CUTOFF_RUNNING = .90
 CUTOFF_V2DIR = .90
-CUTOFF_GUARD = .90
+# Tolerate lower guard flag averages, as guard flags are removed for some time
+# after a relay restarts
+CUTOFF_GUARD = .80
 # What time-weighted-fraction of these flags must FallbackDirs
 # Equal or Fall Under?
 # .00 means no bad exits
@@ -189,7 +198,7 @@ FALLBACK_PROPORTION_OF_GUARDS = None if OUTPUT_CANDIDATES else _FB_POG
 # Limit the number of fallbacks (eliminating lowest by advertised bandwidth)
 MAX_FALLBACK_COUNT = None if OUTPUT_CANDIDATES else 200
 # Emit a C #error if the number of fallbacks is less than expected
-MIN_FALLBACK_COUNT = 0 if OUTPUT_CANDIDATES else MAX_FALLBACK_COUNT*0.75
+MIN_FALLBACK_COUNT = 0 if OUTPUT_CANDIDATES else MAX_FALLBACK_COUNT*0.5
 
 # The maximum number of fallbacks on the same address, contact, or family
 # With 200 fallbacks, this means each operator can see 1% of client bootstraps

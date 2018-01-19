@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -213,8 +213,8 @@ addressmap_clear_excluded_trackexithosts(const or_options_t *options)
     while (dot > target && *dot != '.')
       dot--;
     if (*dot == '.') dot++;
-    nodename = tor_strndup(dot, len-5-(dot-target));;
-    node = node_get_by_nickname(nodename, 0);
+    nodename = tor_strndup(dot, len-5-(dot-target));
+    node = node_get_by_nickname(nodename, NNF_NO_WARN_UNNAMED);
     tor_free(nodename);
     if (!node ||
         (allow_nodes && !routerset_contains_node(allow_nodes, node)) ||
@@ -814,7 +814,7 @@ parse_virtual_addr_network(const char *val, sa_family_t family,
                    ipv6?"IPv6":"");
     return -1;
   }
-#endif
+#endif /* 0 */
 
   if (bits > max_prefix_bits) {
     if (msg)
@@ -1044,7 +1044,7 @@ addressmap_register_virtual_address(int type, char *new_address)
              safe_str_client(*addrp),
              safe_str_client(new_address));
   }
-#endif
+#endif /* 0 */
 
   return *addrp;
 }

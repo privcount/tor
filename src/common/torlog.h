@@ -1,7 +1,7 @@
 /* Copyright (c) 2001, Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -22,7 +22,7 @@
 #error "Your syslog.h thinks high numbers are more important.  " \
        "We aren't prepared to deal with that."
 #endif
-#else
+#else /* !(defined(HAVE_SYSLOG_H)) */
 /* Note: Syslog's logging code refers to priorities, with 0 being the most
  * important.  Thus, all our comparisons needed to be reversed when we added
  * syslog support.
@@ -48,7 +48,7 @@
 /** Error-level severity: for messages that only appear when something has gone
  * very wrong, and the Tor process can no longer proceed. */
 #define LOG_ERR     3
-#endif
+#endif /* defined(HAVE_SYSLOG_H) */
 
 /* Logging domains */
 
@@ -101,8 +101,10 @@
 #define LD_SCHED     (1u<<22)
 /** Guard nodes */
 #define LD_GUARD     (1u<<23)
+/** Generation and application of consensus diffs. */
+#define LD_CONSDIFF  (1u<<24)
 /** Number of logging domains in the code. */
-#define N_LOGGING_DOMAINS 24
+#define N_LOGGING_DOMAINS 25
 
 /** This log message is not safe to send to a callback-based logger
  * immediately.  Used as a flag, not a log domain. */
@@ -211,7 +213,7 @@ void log_fn_ratelim_(struct ratelim_t *ratelim, int severity,
 #define log_err(domain, args...)                            \
   log_fn_(LOG_ERR, domain, __FUNCTION__, args)
 
-#else /* ! defined(__GNUC__) */
+#else /* !(defined(__GNUC__) && __GNUC__ <= 3) */
 
 /* Here are the c99 variadic macros, to work with non-GCC compilers */
 
@@ -238,7 +240,7 @@ void log_fn_ratelim_(struct ratelim_t *ratelim, int severity,
 #define log_fn_ratelim(ratelim, severity, domain, args,...)      \
   log_fn_ratelim_(ratelim, severity, domain, __FUNCTION__, \
                   args, ##__VA_ARGS__)
-#endif
+#endif /* defined(__GNUC__) && __GNUC__ <= 3 */
 
 #ifdef LOG_PRIVATE
 MOCK_DECL(STATIC void, logv, (int severity, log_domain_mask_t domain,
@@ -247,5 +249,5 @@ MOCK_DECL(STATIC void, logv, (int severity, log_domain_mask_t domain,
 #endif
 
 # define TOR_TORLOG_H
-#endif
+#endif /* !defined(TOR_TORLOG_H) */
 

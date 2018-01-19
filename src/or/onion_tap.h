@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -34,5 +34,5 @@ int onion_skin_TAP_client_handshake(crypto_dh_t *handshake_state,
                                 size_t key_out_len,
                                 const char **msg_out);
 
-#endif
+#endif /* !defined(TOR_ONION_TAP_H) */
 

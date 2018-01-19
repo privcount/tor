@@ -1,6 +1,6 @@
 /* Copyright (c) 2001-2003, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 #ifndef TOR_TEST_H
@@ -45,8 +45,8 @@
  * you're doing. */
 #define tt_double_eq(a,b)     \
   STMT_BEGIN                  \
-  tt_double_op((a), >=, (b)); \
-  tt_double_op((a), <=, (b)); \
+  tt_double_op((a), OP_GE, (b)); \
+  tt_double_op((a), OP_LE, (b)); \
   STMT_END
 
 #ifdef _MSC_VER
@@ -55,7 +55,7 @@
 #else
 #define U64_PRINTF_TYPE unsigned long long
 #define I64_PRINTF_TYPE long long
-#endif
+#endif /* defined(_MSC_VER) */
 
 #define tt_size_op(a,op,b)                                              \
   tt_assert_test_fmt_type(a,b,#a" "#op" "#b,size_t,(val1_ op val2_),    \
@@ -181,18 +181,24 @@ extern struct testcase_t buffer_tests[];
 extern struct testcase_t cell_format_tests[];
 extern struct testcase_t cell_queue_tests[];
 extern struct testcase_t channel_tests[];
+extern struct testcase_t channelpadding_tests[];
 extern struct testcase_t channeltls_tests[];
 extern struct testcase_t checkdir_tests[];
+extern struct testcase_t circuitbuild_tests[];
 extern struct testcase_t circuitlist_tests[];
 extern struct testcase_t circuitmux_tests[];
 extern struct testcase_t circuituse_tests[];
 extern struct testcase_t compat_libevent_tests[];
 extern struct testcase_t config_tests[];
 extern struct testcase_t connection_tests[];
+extern struct testcase_t conscache_tests[];
+extern struct testcase_t consdiff_tests[];
+extern struct testcase_t consdiffmgr_tests[];
 extern struct testcase_t container_tests[];
 extern struct testcase_t controller_tests[];
 extern struct testcase_t controller_event_tests[];
 extern struct testcase_t crypto_tests[];
+extern struct testcase_t crypto_openssl_tests[];
 extern struct testcase_t dir_tests[];
 extern struct testcase_t dir_handle_get_tests[];
 extern struct testcase_t entryconn_tests[];
@@ -201,8 +207,13 @@ extern struct testcase_t guardfraction_tests[];
 extern struct testcase_t extorport_tests[];
 extern struct testcase_t hs_tests[];
 extern struct testcase_t hs_cache[];
+extern struct testcase_t hs_cell_tests[];
+extern struct testcase_t hs_common_tests[];
+extern struct testcase_t hs_config_tests[];
 extern struct testcase_t hs_descriptor[];
+extern struct testcase_t hs_ntor_tests[];
 extern struct testcase_t hs_service_tests[];
+extern struct testcase_t hs_client_tests[];
 extern struct testcase_t hs_intropoint_tests[];
 extern struct testcase_t introduce_tests[];
 extern struct testcase_t keypin_tests[];
@@ -215,6 +226,8 @@ extern struct testcase_t oos_tests[];
 extern struct testcase_t options_tests[];
 extern struct testcase_t policy_tests[];
 extern struct testcase_t procmon_tests[];
+extern struct testcase_t proto_http_tests[];
+extern struct testcase_t proto_misc_tests[];
 extern struct testcase_t protover_tests[];
 extern struct testcase_t pubsub_tests[];
 extern struct testcase_t pt_tests[];
@@ -226,7 +239,9 @@ extern struct testcase_t router_tests[];
 extern struct testcase_t routerkeys_tests[];
 extern struct testcase_t routerlist_tests[];
 extern struct testcase_t routerset_tests[];
+extern struct testcase_t rust_tests[];
 extern struct testcase_t scheduler_tests[];
+extern struct testcase_t storagedir_tests[];
 extern struct testcase_t socks_tests[];
 extern struct testcase_t status_tests[];
 extern struct testcase_t thread_tests[];
@@ -256,5 +271,5 @@ extern const char AUTHORITY_SIGNKEY_3[];
 extern const char AUTHORITY_SIGNKEY_C_DIGEST[];
 extern const char AUTHORITY_SIGNKEY_C_DIGEST256[];
 
-#endif
+#endif /* !defined(TOR_TEST_H) */
 

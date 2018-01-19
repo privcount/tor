@@ -1,7 +1,7 @@
 /* Copyright (c) 2001 Matej Pfajfar.
  * Copyright (c) 2001-2004, Roger Dingledine.
  * Copyright (c) 2004-2006, Roger Dingledine, Nick Mathewson.
- * Copyright (c) 2007-2016, The Tor Project, Inc. */
+ * Copyright (c) 2007-2017, The Tor Project, Inc. */
 /* See LICENSE for licensing information */
 
 /**
@@ -72,10 +72,8 @@ onion_skin_TAP_create(crypto_pk_t *dest_router_key,
   if (crypto_dh_get_public(dh, challenge, dhbytes))
     goto err;
 
-  note_crypto_pk_op(ENC_ONIONSKIN);
-
   /* set meeting point, meeting cookie, etc here. Leave zero for now. */
-  if (crypto_pk_public_hybrid_encrypt(dest_router_key, onion_skin_out,
+  if (crypto_pk_obsolete_public_hybrid_encrypt(dest_router_key, onion_skin_out,
                                       TAP_ONIONSKIN_CHALLENGE_LEN,
                                       challenge, DH_KEY_LEN,
                                       PK_PKCS1_OAEP_PADDING, 1)<0)
@@ -124,8 +122,7 @@ onion_skin_TAP_server_handshake(
     k = i==0?private_key:prev_private_key;
     if (!k)
       break;
-    note_crypto_pk_op(DEC_ONIONSKIN);
-    len = crypto_pk_private_hybrid_decrypt(k, challenge,
+    len = crypto_pk_obsolete_private_hybrid_decrypt(k, challenge,
                                            TAP_ONIONSKIN_CHALLENGE_LEN,
                                            onion_skin,
                                            TAP_ONIONSKIN_CHALLENGE_LEN,
@@ -159,7 +156,7 @@ onion_skin_TAP_server_handshake(
      * big. That should be impossible. */
     log_info(LD_GENERAL, "crypto_dh_get_public failed.");
     goto err;
-    /* LCOV_EXCP_STOP */
+    /* LCOV_EXCL_STOP */
   }
 
   key_material_len = DIGEST_LEN+key_out_len;
