@@ -204,6 +204,7 @@ void control_event_privcount_circuit_cell(
 #define PRIVCOUNT_CELL_RECEIVED 0
 #define PRIVCOUNT_CELL_SENT 1
 
+void queued_events_flush_all(int force);
 void control_free_all(void);
 
 #ifdef CONTROL_PRIVATE
