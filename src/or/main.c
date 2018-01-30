@@ -3210,8 +3210,6 @@ tor_cleanup(void)
     keypin_close_journal();
   }
 
-  timers_shutdown();
-
   /* Some OSs will clear any unread data on control connections when the tor
    * process closes. We could sleep() here to allow the other process time to
    * read, but how much time is enough? */
