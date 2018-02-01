@@ -761,7 +761,7 @@ queued_event_free(queued_event_t *ev)
  * and remove the events from the queue.  If <b>force</b> is true,
  * then make all controllers send their data out immediately, since we
  * may be about to shut down. */
-static void
+void
 queued_events_flush_all(int force)
 {
   if (PREDICT_UNLIKELY(queued_control_events == NULL)) {

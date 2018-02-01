@@ -595,6 +595,7 @@ hs_intro_received_introduce1(or_circuit_t *circ, const uint8_t *request,
   if (!circuit_is_suitable_for_introduce1(circ)) {
     /* We do not send a NACK because the circuit is not suitable for any kind
      * of response or transmission as it's a violation of the protocol. */
+    circ->privcount_circuit_failure_reason = "ProtocolError";
     goto err;
   }
   /* Mark the circuit that we got this cell. None are allowed after this as a

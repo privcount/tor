@@ -3346,10 +3346,14 @@ tor_cleanup(void)
 
   timers_shutdown();
 
+  /* Some OSs will clear any unread data on control connections when the tor
+   * process closes. We could sleep() here to allow the other process time to
+   * read, but how much time is enough? */
+  queued_events_flush_all(1);
+
 #ifdef USE_DMALLOC
   dmalloc_log_stats();
 #endif
-  sleep(1);
   tor_free_all(0); /* We could move tor_free_all back into the ifdef below
                       later, if it makes shutdown unacceptably slow.  But for
                       now, leave it here: it's helped us catch bugs in the
