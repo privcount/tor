@@ -299,11 +299,9 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
     /* Received cells on circuits that are marked for close are read from the
      * queue, and then dropped.
      * Most counters will just ignore this, but do it anyway for consistency */
-    if (get_options()->EnablePrivCount) {
-      control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED,
-                                           NULL, NULL, NULL);
-    }
+    control_event_privcount_circuit_cell(chan, circ, cell,
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         NULL, NULL, NULL);
 
     return 0;
   }
@@ -314,15 +312,13 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
 
     /* This cell is never actually processed. Counters can ignore it using
      * was_relay_crypt_successful. */
-    if (get_options()->EnablePrivCount) {
-      const int is_recognized = (int)recognized;
-      const int was_relay_crypt_successful = 0;
-      control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED,
-                                           &is_recognized,
-                                           &was_relay_crypt_successful,
-                                           NULL);
-    }
+    const int is_recognized = (int)recognized;
+    const int was_relay_crypt_successful = 0;
+    control_event_privcount_circuit_cell(chan, circ, cell,
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         &is_recognized,
+                                         &was_relay_crypt_successful,
+                                         NULL);
 
     return -END_CIRC_REASON_INTERNAL;
   }
@@ -332,29 +328,27 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
   const int is_recognized = (int)recognized;
   const int was_relay_crypt_successful = 1;
   /* Use the channel that the cell came from */
-  if (get_options()->EnablePrivCount) {
-    if (cell_direction == CELL_DIRECTION_OUT) {
-      control_event_privcount_circuit_cell(TO_OR_CIRCUIT(circ)->p_chan, circ,
-                                           cell,
-                                           PRIVCOUNT_CELL_RECEIVED,
-                                           &is_recognized,
-                                           &was_relay_crypt_successful,
-                                           NULL);
-    } else if (!CIRCUIT_IS_ORIGIN(circ)) {
-      control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED,
-                                           &is_recognized,
-                                           &was_relay_crypt_successful,
-                                           NULL);
-    } else {
-      /* Send events for origin circuits, counters can filter them out using
-       * the corresponding field. */
-      control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
-                                           PRIVCOUNT_CELL_RECEIVED,
-                                           &is_recognized,
-                                           &was_relay_crypt_successful,
-                                           NULL);
-    }
+  if (cell_direction == CELL_DIRECTION_OUT) {
+    control_event_privcount_circuit_cell(TO_OR_CIRCUIT(circ)->p_chan, circ,
+                                         cell,
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         &is_recognized,
+                                         &was_relay_crypt_successful,
+                                         NULL);
+  } else if (!CIRCUIT_IS_ORIGIN(circ)) {
+    control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         &is_recognized,
+                                         &was_relay_crypt_successful,
+                                         NULL);
+  } else {
+    /* Send events for origin circuits, counters can filter them out using
+     * the corresponding field. */
+    control_event_privcount_circuit_cell(circ->n_chan, circ, cell,
+                                         PRIVCOUNT_CELL_RECEIVED,
+                                         &is_recognized,
+                                         &was_relay_crypt_successful,
+                                         NULL);
   }
 
   if (recognized) {
@@ -3059,11 +3053,9 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
     /* Attempts to send a cell on a circuit that is marked for close are
      * ignored.
      * Most counters will just ignore this, but do it anyway for consistency */
-    if (get_options()->EnablePrivCount) {
-      control_event_privcount_circuit_cell(chan, circ, cell,
-                                           PRIVCOUNT_CELL_SENT,
-                                           NULL, NULL, rh);
-    }
+    control_event_privcount_circuit_cell(chan, circ, cell,
+                                         PRIVCOUNT_CELL_SENT,
+                                         NULL, NULL, rh);
 
     return;
   }
@@ -3085,11 +3077,9 @@ append_cell_to_circuit_queue(circuit_t *circ, channel_t *chan,
    * We pass along the relay command here for those cases. There may
    * be a more elegant way to handle this issue.
    */
-  if (get_options()->EnablePrivCount) {
-    control_event_privcount_circuit_cell(chan, circ, cell,
-                                         PRIVCOUNT_CELL_SENT,
-                                         NULL, NULL, rh);
-  }
+  control_event_privcount_circuit_cell(chan, circ, cell,
+                                       PRIVCOUNT_CELL_SENT,
+                                       NULL, NULL, rh);
 
   exitward = (direction == CELL_DIRECTION_OUT);
   if (exitward) {
