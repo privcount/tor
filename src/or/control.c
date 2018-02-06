@@ -7870,6 +7870,9 @@ control_event_privcount_circuit_cell(const channel_t *chan,
                                      const int *was_relay_crypt_successful,
                                      relay_header_t* precrypt_relay_header)
 {
+  /* Always count cells on the circuit */
+  privcount_cell_transfer(circ, chan, is_sent, 0);
+
   /* Just in case */
   if (!get_options()->EnablePrivCount) {
     return;
@@ -7906,9 +7909,6 @@ control_event_privcount_circuit_cell(const channel_t *chan,
                                             get_options())) {
     return;
   }
-
-  /* Count this cell for the circuit */
-  privcount_cell_transfer(circ, chan, is_sent, 0);
 
   /* Now we've counted the cell on the circuit, skip sending the event if it's
    * not wanted */
@@ -8182,6 +8182,7 @@ privcount_byte_transfer(connection_t *conn,
 /* If conn is an exit conn, add 1 cell to its legacy privcount cell counters.
  * If conn has a corresponding or_circuit, add a cell to the circ or orcirc
  * counters, depending on is_legacy_count.
+ *
  * Unlike control_event_privcount_circuit(), legacy events are not
  * included in tagged events: they are counted at different locations.
  * Unlike privcount_byte_transfer(), this is called by the cell event,
