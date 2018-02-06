@@ -256,6 +256,8 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     /* Note it down for the heartbeat log purposes. */
     dos_note_refuse_single_hop_client();
     /* Silent drop so the client has to time out before moving on. */
+    circ->privcount_circuit_failure_reason =
+        "DoSRefuseSingleHopClientRendezvous";
     return 0;
   }
 
