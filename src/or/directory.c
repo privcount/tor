@@ -3488,8 +3488,10 @@ handle_get_hs_descriptor_v2(dir_connection_t *conn,
                             const get_handler_args_t *args)
 {
   const char *url = args->url;
+
+  privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_TWO, 0);
+
   if (connection_dir_is_encrypted(conn)) {
-    privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_TWO, 0);
 
     /* Handle v2 rendezvous descriptor fetch request. */
     const char *descp;
@@ -3532,13 +3534,13 @@ handle_get_hs_descriptor_v3(dir_connection_t *conn,
   const char *pubkey_str = NULL;
   const char *url = args->url;
 
+  privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_THREE, 0);
+
   /* Reject unencrypted dir connections */
   if (!connection_dir_is_encrypted(conn)) {
     write_http_status_line(conn, 404, "Not found");
     goto done;
   }
-
-  privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_THREE, 0);
 
   /* After the path prefix follows the base64 encoded blinded pubkey which we
    * use to get the descriptor from the cache. Skip the prefix and get the
@@ -3744,6 +3746,8 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
       log_info(LD_REND, "Handled v2 rendezvous descriptor post: accepted");
     }
     goto done;
+  } else if (!strcmpstart(url,"/tor/rendezvous2/publish")) {
+    privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_TWO, 1);
   }
 
   /* Handle HS descriptor publish request. */
@@ -3762,6 +3766,9 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
     }
     write_http_status_line(conn, code, msg);
     goto done;
+  } else if (!strcmpstart(url, "/tor/hs/")) {
+    /* Assume that the version will always be 3 */
+    privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_THREE, 1);
   }
 
   if (!authdir_mode(options)) {

@@ -186,6 +186,9 @@ handle_verified_establish_intro_cell(or_circuit_t *circ,
 {
   /* Get the auth key of this intro point */
   ed25519_public_key_t auth_key;
+
+  circ->privcount_hs_version_number = HS_VERSION_THREE;
+
   get_auth_key_from_cell(&auth_key, RELAY_COMMAND_ESTABLISH_INTRO,
                          parsed_cell);
 
@@ -195,8 +198,6 @@ handle_verified_establish_intro_cell(or_circuit_t *circ,
     log_warn(LD_PROTOCOL, "Couldn't send INTRO_ESTABLISHED cell.");
     return -1;
   }
-
-  circ->privcount_hs_version_number = HS_VERSION_THREE;
 
   /* Associate intro point auth key with this circuit. */
   hs_circuitmap_register_intro_circ_v3(circ, &auth_key);

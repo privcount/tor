@@ -238,6 +238,10 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
   log_info(LD_REND, "Received an ESTABLISH_RENDEZVOUS request on circuit %u",
            (unsigned)circ->p_circ_id);
 
+  /* We don't know the hidden service version on rend points, until the
+   * service connects */
+  circ->privcount_circuit_client_rend = 1;
+
   if (circ->base_.purpose != CIRCUIT_PURPOSE_OR) {
     log_warn(LD_PROTOCOL,
              "Tried to establish rendezvous on non-OR circuit with purpose %s",
@@ -276,10 +280,6 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     return -1;
   }
 
-  /* We don't know the hidden service version on rend points, until the
-   * service connects */
-  circ->privcount_circuit_client_rend = 1;
-
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_POINT_WAITING);
   hs_circuitmap_register_rend_circ(circ, request);
 
@@ -307,6 +307,22 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
   or_circuit_t *rend_circ;
   char hexid[9];
   int reason = END_CIRC_REASON_INTERNAL;
+
+  /* We marked the client side circuit when it opened. */
+  circ->privcount_circuit_service_rend = 1;
+
+  /* We can't be sure of the hidden service version on rend points, because v3
+   * services can obscure the real size of HANDSHAKE_INFO by padding it to
+   * 168 bytes, the size of the v2 handshake. (That's the proposal, but the
+   * actual implementation is still under discussion.)
+   * But TAP handshakes are used for v2 service rend circuits, and ntor
+   * handshakes are used for v3 service rend circuits.
+   * We can guess that CREATE_FAST is almost always used for v2 as well. */
+  if (privcount_circuit_used_legacy_handshake(circ)) {
+    circ->privcount_hs_version_number = HS_VERSION_TWO;
+  } else {
+    circ->privcount_hs_version_number = HS_VERSION_THREE;
+  }
 
   if (circ->base_.purpose != CIRCUIT_PURPOSE_OR || circ->base_.n_chan) {
     log_info(LD_REND,
@@ -342,6 +358,13 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
     goto err;
   }
 
+  /* Now we have a valid splice, mark its version */
+  if (privcount_circuit_used_legacy_handshake(circ)) {
+    rend_circ->privcount_hs_version_number = HS_VERSION_TWO;
+  } else {
+    rend_circ->privcount_hs_version_number = HS_VERSION_THREE;
+  }
+
   /* Statistics: Mark this circuit as an RP circuit so that we collect
      stats from it. */
   if (options->HiddenServiceStatistics) {
@@ -364,23 +387,6 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
   log_info(LD_REND,
            "Completing rendezvous: circuit %u joins circuit %u (cookie %s)",
            (unsigned)circ->p_circ_id, (unsigned)rend_circ->p_circ_id, hexid);
-
-  /* We marked the client side circuit when it opened. */
-  circ->privcount_circuit_service_rend = 1;
-  /* We can't be sure of the hidden service version on rend points, because v3
-   * services can obscure the real size of HANDSHAKE_INFO by padding it to
-   * 168 bytes, the size of the v2 handshake. (That's the proposal, but the
-   * actual implementation is still under discussion.)
-   * But TAP handshakes are used for v2 service rend circuits, and ntor
-   * handshakes are used for v3 service rend circuits.
-   * We can guess that CREATE_FAST is almost always used for v2 as well. */
-  if (privcount_circuit_used_legacy_handshake(circ)) {
-    circ->privcount_hs_version_number = HS_VERSION_TWO;
-    rend_circ->privcount_hs_version_number = HS_VERSION_TWO;
-  } else {
-    circ->privcount_hs_version_number = HS_VERSION_THREE;
-    rend_circ->privcount_hs_version_number = HS_VERSION_THREE;
-  }
 
   circuit_change_purpose(TO_CIRCUIT(circ), CIRCUIT_PURPOSE_REND_ESTABLISHED);
   circuit_change_purpose(TO_CIRCUIT(rend_circ),
