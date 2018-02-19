@@ -3673,12 +3673,52 @@ handle_post_hs_descriptor(const char *url, const char *body)
 
   version = parse_hs_version_from_post(url, "/tor/hs/", &end_pos);
   if (version < 0) {
+
+    if (get_options()->EnablePrivCount) {
+      size_t encoded_size = strlen(body);
+      tor_assert(encoded_size <= SSIZE_MAX);
+      control_event_privcount_hsdir_cache_store(
+                                                HS_VERSION_THREE,
+                                                /* cache info */
+                                                -1, /* don't know if was cached */
+                                                0, /* not added to cache */
+                                                "badversion",
+                                                /* descriptor info */
+                                                NULL, /* don't know desc id */
+                                                NULL, /* not v2 */
+                                                NULL, /* not v2 */
+                                                NULL, /* don't know v3 */
+                                                encoded_size,
+                                                -1 /* no intro point size */
+                                                );
+    }
+
     goto err;
   }
 
   /* We have a valid version number, now make sure it's a publish request. Use
    * the end position just after the version and check for the command. */
   if (strcmpstart(end_pos, "/publish")) {
+
+    if (get_options()->EnablePrivCount) {
+      size_t encoded_size = strlen(body);
+      tor_assert(encoded_size <= SSIZE_MAX);
+      control_event_privcount_hsdir_cache_store(
+                                                HS_VERSION_THREE,
+                                                /* cache info */
+                                                -1, /* don't know if was cached */
+                                                0, /* not added to cache */
+                                                "badrequest",
+                                                /* descriptor info */
+                                                NULL, /* don't know desc id */
+                                                NULL, /* not v2 */
+                                                NULL, /* not v2 */
+                                                NULL, /* don't know v3 */
+                                                encoded_size,
+                                                -1 /* no intro point size */
+                                                );
+    }
+
     goto err;
   }
 
@@ -3692,6 +3732,25 @@ handle_post_hs_descriptor(const char *url, const char *body)
     break;
   default:
     /* Unsupported version, return a bad request. */
+    if (get_options()->EnablePrivCount) {
+      size_t encoded_size = strlen(body);
+      tor_assert(encoded_size <= SSIZE_MAX);
+      control_event_privcount_hsdir_cache_store(
+                                                HS_VERSION_THREE,
+                                                /* cache info */
+                                                -1, /* don't know if was cached */
+                                                0, /* not added to cache */
+                                                "badversion",
+                                                /* descriptor info */
+                                                NULL, /* don't know desc id */
+                                                NULL, /* not v2 */
+                                                NULL, /* not v2 */
+                                                NULL, /* don't know v3 */
+                                                encoded_size,
+                                                -1 /* no intro point size */
+                                                );
+    }
+
     goto err;
   }
 
@@ -3748,6 +3807,25 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
     goto done;
   } else if (!strcmpstart(url,"/tor/rendezvous2/publish")) {
     privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_TWO, 1);
+
+    if (get_options()->EnablePrivCount) {
+      size_t encoded_size = strlen(body);
+      tor_assert(encoded_size <= SSIZE_MAX);
+      control_event_privcount_hsdir_cache_store(
+                                                HS_VERSION_TWO,
+                                                /* cache info */
+                                                -1, /* don't know if was cached */
+                                                0, /* not added to cache */
+                                                "unencrypted",
+                                                /* descriptor info */
+                                                NULL, /* don't know desc id */
+                                                NULL, /* not v2 */
+                                                NULL, /* not v2 */
+                                                NULL, /* don't know v3 */
+                                                encoded_size,
+                                                -1 /* no intro point size */
+                                                );
+    }
   }
 
   /* Handle HS descriptor publish request. */
@@ -3766,9 +3844,29 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
     }
     write_http_status_line(conn, code, msg);
     goto done;
+
   } else if (!strcmpstart(url, "/tor/hs/")) {
     /* Assume that the version will always be 3 */
     privcount_mark_circuit_hsdir_conn(conn, HS_VERSION_THREE, 1);
+
+    if (get_options()->EnablePrivCount) {
+      size_t encoded_size = strlen(body);
+      tor_assert(encoded_size <= SSIZE_MAX);
+      control_event_privcount_hsdir_cache_store(
+                                                HS_VERSION_THREE,
+                                                /* cache info */
+                                                -1, /* don't know if was cached */
+                                                0, /* not added to cache */
+                                                "unencrypted",
+                                                /* descriptor info */
+                                                NULL, /* don't know desc id */
+                                                NULL, /* not v2 */
+                                                NULL, /* not v2 */
+                                                NULL, /* don't know v3 */
+                                                encoded_size,
+                                                -1 /* no intro point size */
+                                                );
+    }
   }
 
   if (!authdir_mode(options)) {
