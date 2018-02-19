@@ -6207,14 +6207,18 @@ privcount_circuit_hs_version_number(const or_circuit_t *orcirc)
   }
 }
 
-/* Set the client sink fields in client_orcirc from service_orcirc */
+/* Set the client sink fields in client_orcirc from service_orcirc,
+ * and mark both circuits with the correct HS version. */
 void
 privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
-                                or_circuit_t *service_orcirc)
+                                or_circuit_t *service_orcirc,
+                                int hs_version_number)
 {
   if (BUG(!client_orcirc) || BUG(!service_orcirc) ||
       BUG(!privcount_circuit_is_client_intro(client_orcirc)) ||
       BUG(!privcount_circuit_is_service_intro(service_orcirc)) ||
+      BUG(hs_version_number != HS_VERSION_TWO &&
+          hs_version_number != HS_VERSION_THREE) ||
 #if defined(TOR_UNIT_TESTS)
       /* work around a lazy unit test */
       !service_orcirc->p_chan
@@ -6236,11 +6240,22 @@ privcount_set_intro_client_sink(or_circuit_t *client_orcirc,
    * v3 services can use legacy intro points via the legacy protocol.
    * But TAP handshakes are used for v2 client intro circuits, and ntor
    * handshakes are used for v3 client intro circuits.
-   * We can guess that CREATE_FAST is almost always used for v2 as well. */
-  if (client_orcirc->used_legacy_circuit_handshake) {
+   * (Some old Tor versions use ntor for HSv2.)
+   * We can guess that CREATE_FAST is almost always used for v2 as well,
+   * because recent Tor versions avoid using CREATE_FAST after they have
+   * bootstrapped. */
+  if (hs_version_number == HS_VERSION_THREE) {
+    /* If it used the v3 introduce, it's definitely HSv3 */
+    client_orcirc->privcount_hs_version_number = HS_VERSION_THREE;
+    service_orcirc->privcount_hs_version_number = HS_VERSION_THREE;
+  } else if (privcount_circuit_used_legacy_handshake(client_orcirc)) {
+    /* If any client ever used TAP or CREATE_FAST, it's very likely HSv2. */
     client_orcirc->privcount_hs_version_number = HS_VERSION_TWO;
     service_orcirc->privcount_hs_version_number = HS_VERSION_TWO;
-  } else {
+  } else if (client_orcirc->privcount_hs_version_number != HS_VERSION_TWO &&
+             service_orcirc->privcount_hs_version_number != HS_VERSION_TWO) {
+    /* Otherwise, if all client intro circuits used ntor, it's probably HSv3.
+     * But if it was a mix of TAP and ntor, leave it as HSv2. */
     client_orcirc->privcount_hs_version_number = HS_VERSION_THREE;
     service_orcirc->privcount_hs_version_number = HS_VERSION_THREE;
   }

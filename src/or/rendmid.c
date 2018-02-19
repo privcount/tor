@@ -177,7 +177,7 @@ rend_mid_introduce_legacy(or_circuit_t *circ, const uint8_t *request,
     goto err;
   }
 
-  privcount_set_intro_client_sink(circ, intro_circ);
+  privcount_set_intro_client_sink(circ, intro_circ, HS_VERSION_TWO);
 
   log_info(LD_REND,
            "Sending introduction request for service %s "
@@ -292,6 +292,25 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
   or_circuit_t *rend_circ;
   char hexid[9];
   int reason = END_CIRC_REASON_INTERNAL;
+
+  /* We marked the client side circuit when it opened. */
+  circ->privcount_circuit_service_rend = 1;
+
+  /* We can't be sure of the hidden service version on rend points, because v3
+   * services can obscure the real size of HANDSHAKE_INFO by padding it to
+   * 168 bytes, the size of the v2 handshake. (That's the proposal, but the
+   * actual implementation is still under discussion.)
+   * But TAP handshakes are used for v2 service rend circuits, and ntor
+   * handshakes are used for v3 service rend circuits.
+   * We can guess that CREATE_FAST is almost always used for v2 as well. */
+  if (privcount_circuit_used_legacy_handshake(circ)) {
+    circ->privcount_hs_version_number = HS_VERSION_TWO;
+  } else {
+    /* Some old Tor versions use ntor for HSv2, but there's no way we can
+     * reliably detect them. We could look at the payload length, but that's
+     * unreliable, and unnecessary. */
+    circ->privcount_hs_version_number = HS_VERSION_THREE;
+  }
 
   if (circ->base_.purpose != CIRCUIT_PURPOSE_OR || circ->base_.n_chan) {
     log_info(LD_REND,
