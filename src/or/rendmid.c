@@ -190,7 +190,7 @@ rend_mid_introduce_legacy(or_circuit_t *circ, const uint8_t *request,
     goto err;
   }
 
-  privcount_set_intro_client_sink(circ, intro_circ);
+  privcount_set_intro_client_sink(circ, intro_circ, HS_VERSION_TWO);
 
   log_info(LD_REND,
            "Sending introduction request for service %s "
@@ -336,6 +336,9 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
   if (privcount_circuit_used_legacy_handshake(circ)) {
     circ->privcount_hs_version_number = HS_VERSION_TWO;
   } else {
+    /* Some old Tor versions use ntor for HSv2, but there's no way we can
+     * reliably detect them. We could look at the payload length, but that's
+     * unreliable, and unnecessary. */
     circ->privcount_hs_version_number = HS_VERSION_THREE;
   }
 

@@ -492,7 +492,7 @@ handle_introduce1(or_circuit_t *client_circ, const uint8_t *request,
     }
   }
 
-  privcount_set_intro_client_sink(client_circ, service_circ);
+  privcount_set_intro_client_sink(client_circ, service_circ, HS_VERSION_THREE);
 
   /* Relay the cell to the service on its intro circuit with an INTRODUCE2
    * cell which is the same exact payload. */
