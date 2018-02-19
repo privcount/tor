@@ -3679,7 +3679,8 @@ handle_post_hs_descriptor(const char *url, const char *body)
       control_event_privcount_hsdir_cache_store(
                                                 HS_VERSION_THREE,
                                                 /* cache info */
-                                                -1, /* don't know if was cached */
+                                                -1, /* don't know if was
+                                                     * cached */
                                                 0, /* not added to cache */
                                                 "badversion",
                                                 /* descriptor info */
@@ -3705,7 +3706,8 @@ handle_post_hs_descriptor(const char *url, const char *body)
       control_event_privcount_hsdir_cache_store(
                                                 HS_VERSION_THREE,
                                                 /* cache info */
-                                                -1, /* don't know if was cached */
+                                                -1, /* don't know if was
+                                                     * cached */
                                                 0, /* not added to cache */
                                                 "badrequest",
                                                 /* descriptor info */
@@ -3737,7 +3739,8 @@ handle_post_hs_descriptor(const char *url, const char *body)
       control_event_privcount_hsdir_cache_store(
                                                 HS_VERSION_THREE,
                                                 /* cache info */
-                                                -1, /* don't know if was cached */
+                                                -1, /* don't know if was
+                                                     * cached */
                                                 0, /* not added to cache */
                                                 "badversion",
                                                 /* descriptor info */
@@ -3814,7 +3817,8 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
       control_event_privcount_hsdir_cache_store(
                                                 HS_VERSION_TWO,
                                                 /* cache info */
-                                                -1, /* don't know if was cached */
+                                                -1, /* don't know if was
+                                                     * cached */
                                                 0, /* not added to cache */
                                                 "unencrypted",
                                                 /* descriptor info */
@@ -3855,7 +3859,8 @@ directory_handle_command_post,(dir_connection_t *conn, const char *headers,
       control_event_privcount_hsdir_cache_store(
                                                 HS_VERSION_THREE,
                                                 /* cache info */
-                                                -1, /* don't know if was cached */
+                                                -1, /* don't know if was
+                                                     * cached */
                                                 0, /* not added to cache */
                                                 "unencrypted",
                                                 /* descriptor info */
