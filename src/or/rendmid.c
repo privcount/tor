@@ -45,7 +45,7 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
 
   if (!hs_intro_circuit_is_suitable_for_establish_intro(circ)) {
     reason = END_CIRC_REASON_TORPROTOCOL;
-    circ->privcount_circuit_failure_reason = "FailedCircuit";
+    circ->privcount_circuit_failure_reason = "IntroEv2FailedCircuit";
     goto err;
   }
 
@@ -61,7 +61,7 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
   if (!pk) {
     reason = END_CIRC_REASON_TORPROTOCOL;
     log_warn(LD_PROTOCOL, "Couldn't decode public key.");
-    circ->privcount_circuit_failure_reason = "FailedPublicKey";
+    circ->privcount_circuit_failure_reason = "IntroEv2FailedPublicKey";
     goto err;
   }
 
@@ -70,13 +70,13 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
   memcpy(buf+DIGEST_LEN, "INTRODUCE", 9);
   if (crypto_digest(expected_digest, buf, DIGEST_LEN+9) < 0) {
     log_warn(LD_BUG, "Internal error computing digest.");
-    circ->privcount_circuit_failure_reason = "InternalErrorDigest";
+    circ->privcount_circuit_failure_reason = "IntroEv2InternalErrorDigest";
     goto err;
   }
   if (tor_memneq(expected_digest, request+2+asn1len, DIGEST_LEN)) {
     log_warn(LD_PROTOCOL, "Hash of session info was not as expected.");
     reason = END_CIRC_REASON_TORPROTOCOL;
-    circ->privcount_circuit_failure_reason = "FailedDigest";
+    circ->privcount_circuit_failure_reason = "IntroEv2FailedDigest";
     goto err;
   }
   /* Rest of body: signature of previous data */
@@ -87,14 +87,14 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
     log_warn(LD_PROTOCOL,
              "Incorrect signature on ESTABLISH_INTRO cell; rejecting.");
     reason = END_CIRC_REASON_TORPROTOCOL;
-    circ->privcount_circuit_failure_reason = "FailedSignature";
+    circ->privcount_circuit_failure_reason = "IntroEv2FailedSignature";
     goto err;
   }
 
   /* The request is valid.  First, compute the hash of the service's PK.*/
   if (crypto_pk_get_digest(pk, pk_digest)<0) {
     log_warn(LD_BUG, "Internal error: couldn't hash public key.");
-    circ->privcount_circuit_failure_reason = "InternalErrorHash";
+    circ->privcount_circuit_failure_reason = "IntroEv2InternalErrorHash";
     goto err;
   }
 
@@ -110,7 +110,7 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
                                                 (const uint8_t *)pk_digest))) {
     log_info(LD_REND, "Replacing old circuit for service %s",
              safe_str(serviceid));
-    circ->privcount_circuit_failure_reason = "ReplaceOldCircuit";
+    circ->privcount_circuit_failure_reason = "IntroEv2ReplaceOldCircuit";
     circuit_mark_for_close(TO_CIRCUIT(c), END_CIRC_REASON_FINISHED);
     /* Now it's marked, and it won't be returned next time. */
   }
@@ -133,7 +133,7 @@ rend_mid_establish_intro_legacy(or_circuit_t *circ, const uint8_t *request,
  truncated:
   log_warn(LD_PROTOCOL, "Rejecting truncated ESTABLISH_INTRO cell.");
   reason = END_CIRC_REASON_TORPROTOCOL;
-  circ->privcount_circuit_failure_reason = "TruncatedCell";
+  circ->privcount_circuit_failure_reason = "IntroEv2TruncatedCell";
  err:
   circuit_mark_for_close(TO_CIRCUIT(circ), reason);
  err_no_close:
@@ -170,7 +170,7 @@ rend_mid_introduce_legacy(or_circuit_t *circ, const uint8_t *request,
     log_warn(LD_PROTOCOL, "Impossibly short INTRODUCE1 cell on circuit %u; "
              "responding with nack.",
              (unsigned)circ->p_circ_id);
-    circ->privcount_circuit_failure_reason = "TruncatedCell";
+    circ->privcount_circuit_failure_reason = "Intro1v2TruncatedCell";
     goto err;
   }
 
@@ -186,7 +186,7 @@ rend_mid_introduce_legacy(or_circuit_t *circ, const uint8_t *request,
              "No intro circ found for INTRODUCE1 cell (%s) from circuit %u; "
              "responding with nack.",
              safe_str(serviceid), (unsigned)circ->p_circ_id);
-    circ->privcount_circuit_failure_reason = "FailedLookupCircuit";
+    circ->privcount_circuit_failure_reason = "Intro1v2FailedLookupCircuit";
     goto err;
   }
 
@@ -249,7 +249,7 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     log_warn(LD_PROTOCOL,
              "Tried to establish rendezvous on non-OR circuit with purpose %s",
              circuit_purpose_to_string(circ->base_.purpose));
-    circ->privcount_circuit_failure_reason = "FailedORCircuit";
+    circ->privcount_circuit_failure_reason = "RendEFailedORCircuit";
     goto err;
   }
 
@@ -261,28 +261,28 @@ rend_mid_establish_rendezvous(or_circuit_t *circ, const uint8_t *request,
     dos_note_refuse_single_hop_client();
     /* Silent drop so the client has to time out before moving on. */
     circ->privcount_circuit_failure_reason =
-        "DoSRefuseSingleHopClientRendezvous";
+        "RendEDoSRefuseSingleHopClientRendezvous";
     return 0;
   }
 
   if (circ->base_.n_chan) {
     log_warn(LD_PROTOCOL,
              "Tried to establish rendezvous on non-edge circuit");
-    circ->privcount_circuit_failure_reason = "FailedEdgeCircuit";
+    circ->privcount_circuit_failure_reason = "RendEFailedEdgeCircuit";
     goto err;
   }
 
   if (request_len != REND_COOKIE_LEN) {
     log_fn(LOG_PROTOCOL_WARN,
            LD_PROTOCOL, "Invalid length on ESTABLISH_RENDEZVOUS.");
-    circ->privcount_circuit_failure_reason = "FailedCellLength";
+    circ->privcount_circuit_failure_reason = "RendEFailedCellLength";
     goto err;
   }
 
   if (hs_circuitmap_get_rend_circ_relay_side(request)) {
     log_warn(LD_PROTOCOL,
              "Duplicate rendezvous cookie in ESTABLISH_RENDEZVOUS.");
-    circ->privcount_circuit_failure_reason = "DuplicateCell";
+    circ->privcount_circuit_failure_reason = "RendEDuplicateCell";
     goto err;
   }
 
@@ -347,7 +347,7 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
              "Tried to complete rendezvous on non-OR or non-edge circuit %u.",
              (unsigned)circ->p_circ_id);
     reason = END_CIRC_REASON_TORPROTOCOL;
-    circ->privcount_circuit_failure_reason = "FailedCircuit";
+    circ->privcount_circuit_failure_reason = "RendRFailedCircuit";
     goto err;
   }
 
@@ -356,7 +356,7 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
          "Rejecting RENDEZVOUS1 cell with bad length (%d) on circuit %u.",
          (int)request_len, (unsigned)circ->p_circ_id);
     reason = END_CIRC_REASON_TORPROTOCOL;
-    circ->privcount_circuit_failure_reason = "TruncatedCell";
+    circ->privcount_circuit_failure_reason = "RendRTruncatedCell";
     goto err;
   }
 
@@ -372,7 +372,7 @@ rend_mid_rendezvous(or_circuit_t *circ, const uint8_t *request,
          "Rejecting RENDEZVOUS1 cell with unrecognized rendezvous cookie %s.",
          hexid);
     reason = END_CIRC_REASON_TORPROTOCOL;
-    circ->privcount_circuit_failure_reason = "FailedLookupCircuit";
+    circ->privcount_circuit_failure_reason = "RendRFailedLookupCircuit";
     goto err;
   }
 
