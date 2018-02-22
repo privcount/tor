@@ -385,7 +385,12 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
         if (reason != END_CIRC_AT_ORIGIN) {
           log_warn(LD_OR,
                    "connection_edge_process_relay_cell (at origin) failed.");
+
+        } else if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+          TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+            "RendServiceUnknownPort";
         }
+
         return reason;
       }
     }
@@ -427,6 +432,16 @@ circuit_receive_relay_cell(cell_t *cell, circuit_t *circ,
                                                CELL_DIRECTION_IN)) < 0) {
         log_warn(LD_REND, "Error relaying cell across rendezvous; closing "
                  "circuits");
+        /* Don't replace more specific reasons */
+        if (!TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason) {
+          TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+            "RendSpliceRelaySend";
+        }
+        if (
+        !TO_OR_CIRCUIT(circ)->rend_splice->privcount_circuit_failure_reason) {
+          TO_OR_CIRCUIT(circ)->rend_splice->privcount_circuit_failure_reason =
+            "RendSpliceRelayReceive";
+        }
         /* XXXX Do this here, or just return -1? */
         circuit_mark_for_close(circ, -reason);
         return reason;

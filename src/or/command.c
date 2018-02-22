@@ -371,6 +371,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     tor_free(create_cell);
     log_fn(LOG_PROTOCOL_WARN, LD_OR,
            "Bogus/unrecognized create cell; closing.");
+    circ->privcount_circuit_failure_reason = "CircuitCreateBadCell";
     circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_TORPROTOCOL);
 
     control_event_privcount_circuit_cell(chan, TO_CIRCUIT(circ), cell,
@@ -398,6 +399,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
 
     if (assign_onionskin_to_cpuworker(circ, create_cell) < 0) {
       log_debug(LD_GENERAL,"Failed to hand off onionskin. Closing.");
+      circ->privcount_circuit_failure_reason = "CircuitCreateAssignOnionskin";
       circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_RESOURCELIMIT);
       return;
     }
@@ -421,6 +423,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
     tor_free(create_cell);
     if (len < 0) {
       log_warn(LD_OR,"Failed to generate key material. Closing.");
+      circ->privcount_circuit_failure_reason = "CircuitCreateFastKey";
       circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_INTERNAL);
       return;
     }
@@ -431,6 +434,7 @@ command_process_create_cell(cell_t *cell, channel_t *chan)
                          (const char *)keys, sizeof(keys),
                          rend_circ_nonce)<0) {
       log_warn(LD_OR,"Failed to reply to CREATE_FAST cell. Closing.");
+      circ->privcount_circuit_failure_reason = "CircuitCreateFastResponse";
       circuit_mark_for_close(TO_CIRCUIT(circ), END_CIRC_REASON_INTERNAL);
       return;
     }
@@ -470,6 +474,10 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
   if (circ->n_circ_id != cell->circ_id || circ->n_chan != chan) {
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,
            "got created cell from Tor client? Closing.");
+    if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+      TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+        "CreatedFromClient";
+    }
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
     /* Most counters will just ignore this, but do it anyway for consistency.
@@ -484,6 +492,10 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
 
   if (created_cell_parse(&extended_cell.created_cell, cell) < 0) {
     log_fn(LOG_PROTOCOL_WARN, LD_OR, "Unparseable created cell.");
+    if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+      TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+        "CreatedUnparseable";
+    }
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
     /* Most counters will just ignore this, but do it anyway for consistency.
@@ -505,12 +517,20 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
     log_debug(LD_OR,"at OP. Finishing handshake.");
     if ((err_reason = circuit_finish_handshake(origin_circ,
                                         &extended_cell.created_cell)) < 0) {
+      if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+        TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+          "CreatedOriginHandshake";
+      }
       circuit_mark_for_close(circ, -err_reason);
       return;
     }
     log_debug(LD_OR,"Moving to next skin.");
     if ((err_reason = circuit_send_next_onion_skin(origin_circ)) < 0) {
       log_info(LD_OR,"circuit_send_next_onion_skin failed.");
+      if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+        TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+          "CreatedOriginSendNextOnionSkin";
+      }
       /* XXX push this circuit_close lower */
       circuit_mark_for_close(circ, -err_reason);
       return;
@@ -528,6 +548,10 @@ command_process_created_cell(cell_t *cell, channel_t *chan)
       extended_cell.cell_type = RELAY_COMMAND_EXTENDED;
     if (extended_cell_format(&command, &len, payload, &extended_cell) < 0) {
       log_fn(LOG_PROTOCOL_WARN, LD_OR, "Can't format extended cell.");
+      if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+        TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+          "CreatedRelayFormatExtend";
+      }
       circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
       return;
     }
@@ -566,6 +590,10 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
 
   if (circ->state == CIRCUIT_STATE_ONIONSKIN_PENDING) {
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit in create_wait. Closing.");
+    if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+      TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+        "CircuitCreateWait";
+    }
     circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
     /* Most counters will just ignore this, but do it anyway for consistency.
@@ -609,6 +637,10 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
         log_warn(LD_OR, " upstream=%s",
                  channel_get_actual_remote_descr(circ->n_chan));
       }
+      if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+        TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+          "CircuitInboundRelayEarly";
+      }
       circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
       /* Most counters will just ignore this, but do it anyway for
@@ -626,6 +658,10 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
                "  Closing circuit.",
                (unsigned)cell->circ_id,
                safe_str(channel_get_canonical_remote_descr(chan)));
+        if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+          TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+            "CircuitTooManyRelayEarly";
+        }
         circuit_mark_for_close(circ, END_CIRC_REASON_TORPROTOCOL);
 
         /* Most counters will just ignore this, but do it anyway for
@@ -646,6 +682,12 @@ command_process_relay_cell(cell_t *cell, channel_t *chan)
     log_fn(LOG_PROTOCOL_WARN,LD_PROTOCOL,"circuit_receive_relay_cell "
            "(%s) failed. Closing.",
            direction==CELL_DIRECTION_OUT?"forward":"backward");
+    if (circ && circ->magic == OR_CIRCUIT_MAGIC) {
+      if (!TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason) {
+        TO_OR_CIRCUIT(circ)->privcount_circuit_failure_reason =
+          "CircuitReceiveRelayCell";
+        }
+    }
     circuit_mark_for_close(circ, -reason);
   }
 
