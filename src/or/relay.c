@@ -2729,7 +2729,7 @@ cell_queues_check_size(void)
       if (rend_cache_total > get_options()->MaxMemInQueues / 5) {
         const size_t bytes_to_remove =
           rend_cache_total - (size_t)(get_options()->MaxMemInQueues / 10);
-        alloc -= hs_cache_handle_oom(now, bytes_to_remove);
+        alloc -= hs_cache_handle_oom(time(NULL), bytes_to_remove);
       }
       if (geoip_client_cache_total > get_options()->MaxMemInQueues / 5) {
         const size_t bytes_to_remove =

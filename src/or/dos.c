@@ -14,6 +14,7 @@
 #include "geoip.h"
 #include "main.h"
 #include "networkstatus.h"
+#include "nodelist.h"
 #include "router.h"
 
 #include "dos.h"
@@ -308,6 +309,16 @@ cc_stats_refill_bucket(cc_client_stats_t *stats, const tor_addr_t *addr)
     new_circuit_bucket_count = MIN(stats->circuit_bucket + (uint32_t)num_token,
                                    dos_cc_circuit_burst);
   }
+
+  /* This function is not allowed to make the bucket count larger than the
+   * burst value */
+  tor_assert_nonfatal(new_circuit_bucket_count <= dos_cc_circuit_burst);
+  /* This function is not allowed to make the bucket count smaller, unless it
+   * is decreasing it to a newly configured, lower burst value. We allow the
+   * bucket to stay the same size, in case the circuit rate is zero. */
+  tor_assert_nonfatal(new_circuit_bucket_count >= stats->circuit_bucket ||
+                      new_circuit_bucket_count == dos_cc_circuit_burst);
+
   log_debug(LD_DOS, "DoS address %s has its circuit bucket value: %" PRIu32
                     ". Filling it to %" PRIu32 ". Circuit rate is %" PRIu64
                     ". Elapsed time is %" PRIi64,
@@ -664,6 +675,14 @@ dos_new_client_conn(or_connection_t *or_conn)
     goto end;
   }
 
+  /* We ignore any known address meaning an address of a known relay. The
+   * reason to do so is because network reentry is possible where a client
+   * connection comes from an Exit node. Even when we'll fix reentry, this is
+   * a robust defense to keep in place. */
+  if (nodelist_probably_contains_address(&or_conn->real_addr)) {
+    goto end;
+  }
+
   /* We are only interested in client connection from the geoip cache. */
   entry = geoip_lookup_client(&or_conn->real_addr, NULL,
                               GEOIP_CLIENT_CONNECT);
@@ -729,6 +748,14 @@ dos_close_client_conn(const or_connection_t *or_conn)
 void
 dos_consensus_has_changed(const networkstatus_t *ns)
 {
+  /* There are two ways to configure this subsystem, one at startup through
+   * dos_init() which is called when the options are parsed. And this one
+   * through the consensus. We don't want to enable any DoS mitigation if we
+   * aren't a public relay. */
+  if (!public_server_mode(get_options())) {
+    return;
+  }
+
   cc_consensus_has_changed(ns);
   conn_consensus_has_changed(ns);
 
