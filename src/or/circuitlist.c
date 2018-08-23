@@ -960,6 +960,18 @@ circuit_free(circuit_t *circ)
    * hs identifier is freed. */
   hs_circ_cleanup(circ);
 
+  if(circ->privcount_tmodel_streams) {
+    /* send finished event for completeness */
+    monotime_t now;
+    monotime_get(&now);
+    tmodel_streams_observation(
+        circ->privcount_tmodel_streams,
+        TMODEL_OBSTYPE_STREAMS_FINISHED, now);
+    /* free the traffic model state */
+    tmodel_streams_free(circ->privcount_tmodel_streams);
+    circ->privcount_tmodel_streams = NULL;
+  }
+
   if (CIRCUIT_IS_ORIGIN(circ)) {
     origin_circuit_t *ocirc = TO_ORIGIN_CIRCUIT(circ);
     mem = ocirc;

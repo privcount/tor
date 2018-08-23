@@ -613,8 +613,10 @@ connection_free_(connection_t *conn)
     }
   }
   if (CONN_IS_EDGE(conn)) {
-    rend_data_free(TO_EDGE_CONN(conn)->rend_data);
-    hs_ident_edge_conn_free(TO_EDGE_CONN(conn)->hs_ident);
+    edge_connection_t* edge = TO_EDGE_CONN(conn);
+    rend_data_free(edge->rend_data);
+    hs_ident_edge_conn_free(edge->hs_ident);
+    connection_edge_privcount_tmodel_stream_end(edge, edge->on_circuit);
   }
   if (conn->type == CONN_TYPE_CONTROL) {
     control_connection_t *control_conn = TO_CONTROL_CONN(conn);

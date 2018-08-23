@@ -937,6 +937,22 @@ connection_edge_send_command(edge_connection_t *fromconn,
   }
 #endif /* defined(MEASUREMENTS_21206) */
 
+  /* Update PrivCount traffic model state, if we need to.
+   * The state object will be NULL if PrivCount is off or
+   * it does not want to model cell emissions. */
+  if (relay_command == RELAY_COMMAND_DATA && fromconn) {
+    /* track the packet observation if we collect packet model */
+    if (fromconn->privcount_tmodel_packets) {
+      tmodel_packets_observation(fromconn->privcount_tmodel_packets,
+          TMODEL_OBSTYPE_PACKET_SENT_TO_ORIGIN, payload_len);
+    }
+
+    /* mark the stream as active since we transferred a packet. */
+    if(payload_len > 0) {
+      fromconn->privcount_stream_active = 1;
+    }
+  }
+
   return relay_send_command_from_edge(fromconn->stream_id, circ,
                                       relay_command, payload,
                                       payload_len, cpath_layer);
@@ -1793,6 +1809,22 @@ connection_edge_process_relay_cell(cell_t *cell, circuit_t *circ,
       stats_n_data_bytes_received += rh.length;
       connection_buf_add((char*)(cell->payload + RELAY_HEADER_SIZE),
                               rh.length, TO_CONN(conn));
+
+      /* Update PrivCount traffic model state, if we need to.
+       * The state object will be NULL if PrivCount is off or
+       * it does not want to model cell emissions. */
+      if(conn) {
+        /* track the observation if we collect packet model */
+        if (conn->privcount_tmodel_packets) {
+          tmodel_packets_observation(conn->privcount_tmodel_packets,
+              TMODEL_OBSTYPE_PACKET_RECV_FROM_ORIGIN, (size_t)rh.length);
+        }
+
+        /* mark the stream as active since we transferred a packet. */
+        if(rh.length > 0) {
+          conn->privcount_stream_active = 1;
+        }
+      }
 
 #ifdef MEASUREMENTS_21206
       /* Count number of RELAY_DATA cells received on a linked directory

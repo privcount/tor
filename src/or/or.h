@@ -79,6 +79,7 @@
 #include "replaycache.h"
 #include "crypto_curve25519.h"
 #include "crypto_ed25519.h"
+#include "tmodel.h"
 #include "tor_queue.h"
 #include "util_format.h"
 #include "hs_circuitmap.h"
@@ -1724,6 +1725,22 @@ typedef struct edge_connection_t {
    * edge connections with dirreq_id from circuits, so it's copied here. */
   uint64_t dirreq_id;
 
+  /* Holds state information used to model cell emissions.
+   * The state is stored during stream usage, and processed
+   * when this object is freed (on stream destroy). */
+  tmodel_packets_t* privcount_tmodel_packets;
+
+  /* Holds the stream creation time used by the stream model
+   * at the point when the stream is being freed. */
+  monotime_t privcount_create_time;
+
+  /* We only count streams in the stream model if it has sent
+   * more than one packets. */
+  unsigned int privcount_stream_active:1;
+
+  /* make sure we only count each stream once */
+  unsigned int privcount_stream_counted:1;
+
   /* The number of the stream on the circuit. Starts at 1.
    * 0 for non-exit streams. */
   uint64_t privcount_circuit_exit_stream_number;
@@ -3188,6 +3205,11 @@ typedef struct circuit_t {
   /* A PrivCount cell counter to count the number of cell events that we
    * have emitted to PrivCount via the control port. */
   uint64_t privcount_n_cell_events_emitted;
+
+  /* Holds state information used to model stream emissions.
+   * The state is stored during circuit usage, and processed
+   * when this object is freed (on circuit destroy). */
+  tmodel_streams_t* privcount_tmodel_streams;
 
   /** If set, points to an HS token that this circuit might be carrying.
    *  Used by the HS circuitmap.  */
@@ -4668,6 +4690,12 @@ typedef struct {
    * Cells with no associated circuit will always be emitted and not counted
    * against the cell limit for any circuit. */
   int PrivCountMaxCellEventsPerCircuit;
+  /* The number of worker threads to use during a PrivCount traffic model
+   * measurement. The workers run the expensive Viterbi computation and
+   * prepare the reply event string that will be sent to PrivCount. */
+  int PrivCountNumViterbiWorkers;
+  /* The model to use during a PrivCount traffic model measurement. */
+  char* PrivCountTrafficModel;
 
   int IPv6Exit; /**< Do we support exiting to IPv6 addresses? */
 
